@@ -21,10 +21,12 @@ logger = logging.getLogger("uvicorn.error")
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 ACCOUNTS_TABLE = os.getenv("ACCOUNTS_TABLE", "Accounts")
 AGENTS_TABLE = os.getenv("AGENTS_TABLE", "Agent")
+PARTY_TABLE = os.getenv("PARTY_TABLE", "Party")
 
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 accounts_table = dynamodb.Table(ACCOUNTS_TABLE)
 agents_table = dynamodb.Table(AGENTS_TABLE)
+party_table = dynamodb.Table(PARTY_TABLE)
 
 app = FastAPI()
 
@@ -318,4 +320,156 @@ def delete_agent(agent_id: int):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     agents_table.delete_item(Key={"AgentId": agent_id})
+    return {"deleted": True}
+
+# =========================================================
+# ===================== HELPERS ===========================
+# =========================================================
+
+def ddb_decimal(n: float) -> Decimal:
+    return Decimal(str(n))
+
+
+def normalize_ddb_item(item: dict) -> dict:
+    out = {}
+    for k, v in item.items():
+        if isinstance(v, Decimal):
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
+
+
+def normalize_agent_item(item: dict) -> dict:
+    def convert(value):
+        if isinstance(value, Decimal):
+            return str(value)
+        return value
+
+    return {
+        "agentId": int(item["AgentId"]) if isinstance(item["AgentId"], Decimal) else item["AgentId"],
+        "name": convert(item.get("Name")),
+        "mobile": convert(item.get("Mobile")),
+        "aadhar_Details": convert(item.get("Aadhar_Details")),
+        "address": convert(item.get("Address")),
+    }
+
+
+def normalize_party_item(item: dict) -> dict:
+    def convert(value):
+        if isinstance(value, Decimal):
+            # Convert to int first
+            value = int(value)
+        return str(value) if value is not None else None
+
+    return {
+        "partyId": int(item["PartyId"]) if isinstance(item["PartyId"], Decimal) else item["PartyId"],
+        "partyName": item.get("PartyName"),
+        "aliasOrCompanyName": item.get("AliasOrCompanyName"),
+        "address": item.get("Address"),
+        "city": item.get("City"),
+        "pincode": convert(item.get("Pincode")),
+        "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get("AgentId"),
+        "contact_Person1": item.get("Contact_Person1"),
+        "email": item.get("Email"),
+        "mobile1": convert(item.get("Mobile1")),
+        "orderId": convert(item.get("OrderId")),
+    }
+
+
+def aws_error_detail(e: ClientError) -> str:
+    code = e.response.get("Error", {}).get("Code", "ClientError")
+    msg = e.response.get("Error", {}).get("Message", str(e))
+    return f"{code}: {msg}"
+
+# =========================================================
+# ===================== PARTY =============================
+# =========================================================
+
+class Party(BaseModel):
+    partyId: int
+    partyName: str
+    aliasOrCompanyName: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    agentId: Optional[int] = None
+    contact_Person1: Optional[str] = None
+    email: Optional[str] = None
+    mobile1: Optional[str] = None
+    orderId: Optional[str] = None
+
+
+@app.get("/api/party", response_model=List[Party])
+def list_parties():
+    try:
+        items = party_table.scan().get("Items", [])
+        return [normalize_party_item(x) for x in items]
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+
+
+@app.get("/api/party/{party_id}", response_model=Party)
+def get_party(party_id: int):
+    item = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+    if not item:
+        raise HTTPException(status_code=404, detail="Party not found")
+    return normalize_party_item(item)
+
+
+@app.post("/api/party", response_model=Party)
+def create_party(payload: Party):
+    existing = party_table.get_item(Key={"PartyId": payload.partyId}).get("Item")
+    if existing:
+        raise HTTPException(status_code=400, detail="PartyId already exists")
+
+    item = {
+        "PartyId": payload.partyId,
+        "PartyName": payload.partyName,
+        "AliasOrCompanyName": payload.aliasOrCompanyName,
+        "Address": payload.address,
+        "City": payload.city,
+        "Pincode": payload.pincode,
+        "AgentId": payload.agentId,
+        "Contact_Person1": payload.contact_Person1,
+        "Email": payload.email,
+        "Mobile1": payload.mobile1,
+        "OrderId": payload.orderId,
+    }
+
+    party_table.put_item(Item=item)
+    return payload
+
+
+@app.put("/api/party/{party_id}", response_model=Party)
+def update_party(party_id: int, payload: Party):
+    existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+    if not existing:
+        raise HTTPException(status_code=404, detail="Party not found")
+
+    item = {
+        "PartyId": party_id,
+        "PartyName": payload.partyName,
+        "AliasOrCompanyName": payload.aliasOrCompanyName,
+        "Address": payload.address,
+        "City": payload.city,
+        "Pincode": payload.pincode,
+        "AgentId": payload.agentId,
+        "Contact_Person1": payload.contact_Person1,
+        "Email": payload.email,
+        "Mobile1": payload.mobile1,
+        "OrderId": payload.orderId,
+    }
+
+    party_table.put_item(Item=item)
+    return payload
+
+
+@app.delete("/api/party/{party_id}")
+def delete_party(party_id: int):
+    existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+    if not existing:
+        raise HTTPException(status_code=404, detail="Party not found")
+
+    party_table.delete_item(Key={"PartyId": party_id})
     return {"deleted": True}
