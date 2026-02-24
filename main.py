@@ -94,6 +94,7 @@ def normalize_party_item(item: dict) -> dict:
         "aliasOrCompanyName": item.get("AliasOrCompanyName"),
         "address": item.get("Address"),
         "city": item.get("City"),
+        "state": item.get("State"),
         "pincode": convert(item.get("Pincode")),
         "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get(
             "AgentId"),
@@ -466,6 +467,7 @@ class Party(BaseModel):
     aliasOrCompanyName: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
@@ -479,6 +481,7 @@ class CreateParty(BaseModel):
     aliasOrCompanyName: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
@@ -492,6 +495,7 @@ class UpdateParty(BaseModel):
     aliasOrCompanyName: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
@@ -534,6 +538,7 @@ def create_party(payload: CreateParty):
             "AliasOrCompanyName": payload.aliasOrCompanyName,
             "Address": payload.address,
             "City": payload.city,
+            "State": payload.state,
             "Pincode": payload.pincode,
             "AgentId": payload.agentId,
             "Contact_Person1": payload.contact_Person1,
@@ -566,6 +571,7 @@ def update_party(party_id: int, payload: UpdateParty):
             "AliasOrCompanyName": payload.aliasOrCompanyName,
             "Address": payload.address,
             "City": payload.city,
+            "State": payload.state,
             "Pincode": payload.pincode,
             "AgentId": payload.agentId,
             "Contact_Person1": payload.contact_Person1,
