@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # =========================================================
 # ===================== HELPERS ===========================
 # =========================================================
@@ -64,6 +66,7 @@ def normalize_agent_item(item: dict) -> dict:
     Convert DynamoDB item to API-safe response.
     Handles Decimal conversion properly.
     """
+
     def convert(value):
         if isinstance(value, Decimal):
             return str(value)
@@ -92,7 +95,8 @@ def normalize_party_item(item: dict) -> dict:
         "address": item.get("Address"),
         "city": item.get("City"),
         "pincode": convert(item.get("Pincode")),
-        "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get("AgentId"),
+        "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get(
+            "AgentId"),
         "contact_Person1": item.get("Contact_Person1"),
         "email": item.get("Email"),
         "mobile1": convert(item.get("Mobile1")),
@@ -104,6 +108,60 @@ def aws_error_detail(e: ClientError) -> str:
     code = e.response.get("Error", {}).get("Code", "ClientError")
     msg = e.response.get("Error", {}).get("Message", str(e))
     return f"{code}: {msg}"
+
+
+def get_next_agent_id() -> int:
+    """
+    Get the next agent ID by finding the highest existing agent ID and adding 1
+    """
+    try:
+        items = agents_table.scan().get("Items", [])
+        if not items:
+            return 1
+
+        agent_ids = []
+        for item in items:
+            agent_id = item.get("AgentId")
+            if agent_id:
+                if isinstance(agent_id, Decimal):
+                    agent_ids.append(int(agent_id))
+                else:
+                    agent_ids.append(int(agent_id))
+
+        if not agent_ids:
+            return 1
+
+        return max(agent_ids) + 1
+    except Exception as e:
+        logger.error(f"Error getting next agent ID: {str(e)}")
+        raise
+
+
+def get_next_party_id() -> int:
+    """
+    Get the next party ID by finding the highest existing party ID and adding 1
+    """
+    try:
+        items = party_table.scan().get("Items", [])
+        if not items:
+            return 1
+
+        party_ids = []
+        for item in items:
+            party_id = item.get("PartyId")
+            if party_id:
+                if isinstance(party_id, Decimal):
+                    party_ids.append(int(party_id))
+                else:
+                    party_ids.append(int(party_id))
+
+        if not party_ids:
+            return 1
+
+        return max(party_ids) + 1
+    except Exception as e:
+        logger.error(f"Error getting next party ID: {str(e)}")
+        raise
 
 
 # =========================================================
@@ -275,7 +333,6 @@ class AgentLightweight(BaseModel):
 
 
 class CreateAgent(BaseModel):
-    agentId: int
     aadhar_Details: str
     address: str
     mobile: str
@@ -291,8 +348,11 @@ class UpdateAgent(BaseModel):
 
 @app.get("/api/agents", response_model=List[Agent])
 def list_agents():
-    items = agents_table.scan().get("Items", [])
-    return [normalize_agent_item(x) for x in items]
+    try:
+        items = agents_table.scan().get("Items", [])
+        return [normalize_agent_item(x) for x in items]
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
 
 
 @app.get("/api/agents/lightweight", response_model=List[AgentLightweight])
@@ -314,57 +374,86 @@ def list_agents_lightweight():
 
 @app.get("/api/agents/{agent_id}", response_model=Agent)
 def get_agent(agent_id: int):
-    resp = agents_table.get_item(Key={"AgentId": agent_id})
-    item = resp.get("Item")
-    if not item:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    return normalize_agent_item(item)
+    try:
+        resp = agents_table.get_item(Key={"AgentId": agent_id})
+        item = resp.get("Item")
+        if not item:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return normalize_agent_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
 
 
 @app.post("/api/agents", response_model=Agent)
 def create_agent(payload: CreateAgent):
-    existing = agents_table.get_item(Key={"AgentId": payload.agentId}).get("Item")
-    if existing:
-        raise HTTPException(status_code=400, detail="AgentId already exists")
+    try:
+        # Auto-generate next agent ID
+        agent_id = get_next_agent_id()
 
-    item = {
-        "AgentId": payload.agentId,
-        "Name": payload.name,
-        "Mobile": payload.mobile,
-        "Aadhar_Details": payload.aadhar_Details,
-        "Address": payload.address,
-    }
+        # Create item with DynamoDB attribute names
+        item = {
+            "AgentId": agent_id,
+            "Name": payload.name,
+            "Mobile": payload.mobile,
+            "Aadhar_Details": payload.aadhar_Details,
+            "Address": payload.address,
+        }
 
-    agents_table.put_item(Item=item)
-    return normalize_agent_item(item)
+        # Put item in DynamoDB
+        agents_table.put_item(Item=item)
+
+        # Return normalized response
+        return normalize_agent_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating agent: {str(e)}")
 
 
 @app.put("/api/agents/{agent_id}", response_model=Agent)
 def update_agent(agent_id: int, payload: UpdateAgent):
-    existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
-    if not existing:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agent not found")
 
-    item = {
-        "AgentId": agent_id,
-        "Name": payload.name,
-        "Mobile": payload.mobile,
-        "Aadhar_Details": payload.aadhar_Details,
-        "Address": payload.address,
-    }
+        item = {
+            "AgentId": agent_id,
+            "Name": payload.name,
+            "Mobile": payload.mobile,
+            "Aadhar_Details": payload.aadhar_Details,
+            "Address": payload.address,
+        }
 
-    agents_table.put_item(Item=item)
-    return normalize_agent_item(item)
+        agents_table.put_item(Item=item)
+        return normalize_agent_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating agent: {str(e)}")
 
 
 @app.delete("/api/agents/{agent_id}")
 def delete_agent(agent_id: int):
-    existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
-    if not existing:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agent not found")
 
-    agents_table.delete_item(Key={"AgentId": agent_id})
-    return {"deleted": True}
+        agents_table.delete_item(Key={"AgentId": agent_id})
+        return {"deleted": True}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
 
 
 # =========================================================
@@ -373,6 +462,32 @@ def delete_agent(agent_id: int):
 
 class Party(BaseModel):
     partyId: int
+    partyName: str
+    aliasOrCompanyName: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    agentId: Optional[int] = None
+    contact_Person1: Optional[str] = None
+    email: Optional[str] = None
+    mobile1: Optional[str] = None
+    orderId: Optional[str] = None
+
+
+class CreateParty(BaseModel):
+    partyName: str
+    aliasOrCompanyName: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    agentId: Optional[int] = None
+    contact_Person1: Optional[str] = None
+    email: Optional[str] = None
+    mobile1: Optional[str] = None
+    orderId: Optional[str] = None
+
+
+class UpdateParty(BaseModel):
     partyName: str
     aliasOrCompanyName: Optional[str] = None
     address: Optional[str] = None
@@ -396,65 +511,90 @@ def list_parties():
 
 @app.get("/api/party/{party_id}", response_model=Party)
 def get_party(party_id: int):
-    item = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-    if not item:
-        raise HTTPException(status_code=404, detail="Party not found")
-    return normalize_party_item(item)
+    try:
+        item = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        if not item:
+            raise HTTPException(status_code=404, detail="Party not found")
+        return normalize_party_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
 
 
 @app.post("/api/party", response_model=Party)
-def create_party(payload: Party):
-    existing = party_table.get_item(Key={"PartyId": payload.partyId}).get("Item")
-    if existing:
-        raise HTTPException(status_code=400, detail="PartyId already exists")
+def create_party(payload: CreateParty):
+    try:
+        # Auto-generate next party ID
+        party_id = get_next_party_id()
 
-    item = {
-        "PartyId": payload.partyId,
-        "PartyName": payload.partyName,
-        "AliasOrCompanyName": payload.aliasOrCompanyName,
-        "Address": payload.address,
-        "City": payload.city,
-        "Pincode": payload.pincode,
-        "AgentId": payload.agentId,
-        "Contact_Person1": payload.contact_Person1,
-        "Email": payload.email,
-        "Mobile1": payload.mobile1,
-        "OrderId": payload.orderId,
-    }
+        item = {
+            "PartyId": party_id,
+            "PartyName": payload.partyName,
+            "AliasOrCompanyName": payload.aliasOrCompanyName,
+            "Address": payload.address,
+            "City": payload.city,
+            "Pincode": payload.pincode,
+            "AgentId": payload.agentId,
+            "Contact_Person1": payload.contact_Person1,
+            "Email": payload.email,
+            "Mobile1": payload.mobile1,
+            "OrderId": payload.orderId,
+        }
 
-    party_table.put_item(Item=item)
-    return payload
+        party_table.put_item(Item=item)
+        return normalize_party_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating party: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating party: {str(e)}")
 
 
 @app.put("/api/party/{party_id}", response_model=Party)
-def update_party(party_id: int, payload: Party):
-    existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-    if not existing:
-        raise HTTPException(status_code=404, detail="Party not found")
+def update_party(party_id: int, payload: UpdateParty):
+    try:
+        existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Party not found")
 
-    item = {
-        "PartyId": party_id,
-        "PartyName": payload.partyName,
-        "AliasOrCompanyName": payload.aliasOrCompanyName,
-        "Address": payload.address,
-        "City": payload.city,
-        "Pincode": payload.pincode,
-        "AgentId": payload.agentId,
-        "Contact_Person1": payload.contact_Person1,
-        "Email": payload.email,
-        "Mobile1": payload.mobile1,
-        "OrderId": payload.orderId,
-    }
+        item = {
+            "PartyId": party_id,
+            "PartyName": payload.partyName,
+            "AliasOrCompanyName": payload.aliasOrCompanyName,
+            "Address": payload.address,
+            "City": payload.city,
+            "Pincode": payload.pincode,
+            "AgentId": payload.agentId,
+            "Contact_Person1": payload.contact_Person1,
+            "Email": payload.email,
+            "Mobile1": payload.mobile1,
+            "OrderId": payload.orderId,
+        }
 
-    party_table.put_item(Item=item)
-    return payload
+        party_table.put_item(Item=item)
+        return normalize_party_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating party: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating party: {str(e)}")
 
 
 @app.delete("/api/party/{party_id}")
 def delete_party(party_id: int):
-    existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-    if not existing:
-        raise HTTPException(status_code=404, detail="Party not found")
+    try:
+        existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Party not found")
 
-    party_table.delete_item(Key={"PartyId": party_id})
-    return {"deleted": True}
+        party_table.delete_item(Key={"PartyId": party_id})
+        return {"deleted": True}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
