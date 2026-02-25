@@ -99,8 +99,10 @@ def normalize_party_item(item: dict) -> dict:
         "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get(
             "AgentId"),
         "contact_Person1": item.get("Contact_Person1"),
+        "contact_Person2": item.get("Contact_Person2"),
         "email": item.get("Email"),
         "mobile1": convert(item.get("Mobile1")),
+        "mobile2": convert(item.get("Mobile2")),
         "orderId": convert(item.get("OrderId")),
     }
 
@@ -471,8 +473,10 @@ class Party(BaseModel):
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
+    contact_Person2: Optional[str] = None
     email: Optional[str] = None
     mobile1: Optional[str] = None
+    mobile2: Optional[str] = None
     orderId: Optional[str] = None
 
 
@@ -485,8 +489,10 @@ class CreateParty(BaseModel):
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
+    contact_Person2: Optional[str] = None
     email: Optional[str] = None
     mobile1: Optional[str] = None
+    mobile2: Optional[str] = None
     orderId: Optional[str] = None
 
 
@@ -499,8 +505,10 @@ class UpdateParty(BaseModel):
     pincode: Optional[str] = None
     agentId: Optional[int] = None
     contact_Person1: Optional[str] = None
+    contact_Person2: Optional[str] = None
     email: Optional[str] = None
     mobile1: Optional[str] = None
+    mobile2: Optional[str] = None
     orderId: Optional[str] = None
 
 
@@ -542,8 +550,10 @@ def create_party(payload: CreateParty):
             "Pincode": payload.pincode,
             "AgentId": payload.agentId,
             "Contact_Person1": payload.contact_Person1,
+            "Contact_Person2": payload.contact_Person2,
             "Email": payload.email,
             "Mobile1": payload.mobile1,
+            "Mobile2": payload.mobile2,
             "OrderId": payload.orderId,
         }
 
@@ -575,8 +585,10 @@ def update_party(party_id: int, payload: UpdateParty):
             "Pincode": payload.pincode,
             "AgentId": payload.agentId,
             "Contact_Person1": payload.contact_Person1,
+            "Contact_Person2": payload.contact_Person2,
             "Email": payload.email,
             "Mobile1": payload.mobile1,
+            "Mobile2": payload.mobile2,
             "OrderId": payload.orderId,
         }
 
