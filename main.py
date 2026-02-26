@@ -23,11 +23,13 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 ACCOUNTS_TABLE = os.getenv("ACCOUNTS_TABLE", "Accounts")
 AGENTS_TABLE = os.getenv("AGENTS_TABLE", "Agent")
 PARTY_TABLE = os.getenv("PARTY_TABLE", "Party")
+PRODUCTS_TABLE = os.getenv("PRODUCTS_TABLE", "Product")
 
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 accounts_table = dynamodb.Table(ACCOUNTS_TABLE)
 agents_table = dynamodb.Table(AGENTS_TABLE)
 party_table = dynamodb.Table(PARTY_TABLE)
+products_table = dynamodb.Table(PRODUCTS_TABLE)
 
 app = FastAPI()
 
@@ -107,6 +109,40 @@ def normalize_party_item(item: dict) -> dict:
     }
 
 
+def normalize_product_item(item: dict) -> dict:
+    """
+    Convert DynamoDB Product item to API-safe response.
+    Handles Decimal conversion properly.
+    """
+
+    def convert_decimal(value):
+        if isinstance(value, Decimal):
+            return float(value)
+        return value
+
+    return {
+        "productId": int(item["ProductId"]) if isinstance(item["ProductId"], Decimal) else item["ProductId"],
+        "productType": item.get("ProductType"),
+        "productSize": convert_decimal(item.get("ProductSize")),
+        "bagMaterial": item.get("BagMaterial"),
+        "quantity": convert_decimal(item.get("Quantity")),
+        "sheetGSM": convert_decimal(item.get("SheetGSM")),
+        "sheetColor": item.get("SheetColor"),
+        "borderGSM": convert_decimal(item.get("BorderGSM")),
+        "borderColor": item.get("BorderColor"),
+        "handleType": item.get("HandleType"),
+        "handleColor": item.get("HandleColor"),
+        "handleGSM": convert_decimal(item.get("HandleGSM")),
+        "printingType": item.get("PrintingType"),
+        "printColor": item.get("PrintColor"),
+        "color": item.get("Color"),
+        "design": item.get("Design", False),
+        "plateBlockNumber": convert_decimal(item.get("PlateBlockNumber")),
+        "plateAvailable": item.get("PlateAvailable", False),
+        "rate": convert_decimal(item.get("Rate")),
+    }
+
+
 def aws_error_detail(e: ClientError) -> str:
     code = e.response.get("Error", {}).get("Code", "ClientError")
     msg = e.response.get("Error", {}).get("Message", str(e))
@@ -164,6 +200,33 @@ def get_next_party_id() -> int:
         return max(party_ids) + 1
     except Exception as e:
         logger.error(f"Error getting next party ID: {str(e)}")
+        raise
+
+
+def get_next_product_id() -> int:
+    """
+    Get the next product ID by finding the highest existing product ID and adding 1
+    """
+    try:
+        items = products_table.scan().get("Items", [])
+        if not items:
+            return 1
+
+        product_ids = []
+        for item in items:
+            product_id = item.get("ProductId")
+            if product_id:
+                if isinstance(product_id, Decimal):
+                    product_ids.append(int(product_id))
+                else:
+                    product_ids.append(int(product_id))
+
+        if not product_ids:
+            return 1
+
+        return max(product_ids) + 1
+    except Exception as e:
+        logger.error(f"Error getting next product ID: {str(e)}")
         raise
 
 
@@ -616,3 +679,292 @@ def delete_party(party_id: int):
         raise HTTPException(status_code=500, detail=aws_error_detail(e))
     except HTTPException:
         raise
+
+
+# =========================================================
+# ===================== PRODUCTS ==========================
+# =========================================================
+
+class Product(BaseModel):
+    productId: int
+    productType: Optional[str] = None
+    productSize: Optional[float] = None
+    bagMaterial: Optional[str] = None
+    quantity: Optional[float] = None
+    sheetGSM: Optional[float] = None
+    sheetColor: Optional[str] = None
+    borderGSM: Optional[float] = None
+    borderColor: Optional[str] = None
+    handleType: Optional[str] = None
+    handleColor: Optional[str] = None
+    handleGSM: Optional[float] = None
+    printingType: Optional[str] = None
+    printColor: Optional[str] = None
+    color: Optional[str] = None
+    design: Optional[bool] = False
+    plateBlockNumber: Optional[float] = None
+    plateAvailable: Optional[bool] = False
+    rate: Optional[float] = None
+
+
+class CreateProduct(BaseModel):
+    productType: str
+    productSize: float
+    bagMaterial: str
+    quantity: float
+    sheetGSM: float
+    sheetColor: str
+    borderGSM: float
+    borderColor: str
+    handleType: str
+    handleColor: str
+    handleGSM: float
+    printingType: str
+    printColor: str
+    color: str
+    design: bool = False
+    plateBlockNumber: float = 0
+    plateAvailable: bool = False
+    rate: float
+
+
+class UpdateProduct(BaseModel):
+    productType: str
+    productSize: float
+    bagMaterial: str
+    quantity: float
+    sheetGSM: float
+    sheetColor: str
+    borderGSM: float
+    borderColor: str
+    handleType: str
+    handleColor: str
+    handleGSM: float
+    printingType: str
+    printColor: str
+    color: str
+    design: bool = False
+    plateBlockNumber: float = 0
+    plateAvailable: bool = False
+    rate: float
+
+
+class SearchProduct(BaseModel):
+    """Model for searching products with optional filters"""
+    productType: Optional[str] = None
+    bagMaterial: Optional[str] = None
+    sheetColor: Optional[str] = None
+    borderColor: Optional[str] = None
+    handleColor: Optional[str] = None
+    printingType: Optional[str] = None
+    printColor: Optional[str] = None
+    color: Optional[str] = None
+    design: Optional[bool] = None
+    plateAvailable: Optional[bool] = None
+    minPrice: Optional[float] = None
+    maxPrice: Optional[float] = None
+
+
+@app.get("/api/products", response_model=List[Product])
+def list_products():
+    """
+    Get all products from the database
+    """
+    try:
+        items = products_table.scan().get("Items", [])
+        return [normalize_product_item(x) for x in items]
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+
+
+@app.get("/api/products/{product_id}", response_model=Product)
+def get_product(product_id: int):
+    """
+    Get a specific product by ID
+    """
+    try:
+        resp = products_table.get_item(Key={"ProductId": product_id})
+        item = resp.get("Item")
+        if not item:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return normalize_product_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+
+
+@app.post("/api/products", response_model=Product)
+def create_product(payload: CreateProduct):
+    """
+    Create a new product with auto-generated ID
+    """
+    try:
+        # Auto-generate next product ID
+        product_id = get_next_product_id()
+
+        # Create item with DynamoDB attribute names
+        item = {
+            "ProductId": product_id,
+            "ProductType": payload.productType,
+            "ProductSize": ddb_decimal(payload.productSize),
+            "BagMaterial": payload.bagMaterial,
+            "Quantity": ddb_decimal(payload.quantity),
+            "SheetGSM": ddb_decimal(payload.sheetGSM),
+            "SheetColor": payload.sheetColor,
+            "BorderGSM": ddb_decimal(payload.borderGSM),
+            "BorderColor": payload.borderColor,
+            "HandleType": payload.handleType,
+            "HandleColor": payload.handleColor,
+            "HandleGSM": ddb_decimal(payload.handleGSM),
+            "PrintingType": payload.printingType,
+            "PrintColor": payload.printColor,
+            "Color": payload.color,
+            "Design": payload.design,
+            "PlateBlockNumber": ddb_decimal(payload.plateBlockNumber),
+            "PlateAvailable": payload.plateAvailable,
+            "Rate": ddb_decimal(payload.rate),
+        }
+
+        # Put item in DynamoDB
+        products_table.put_item(Item=item)
+
+        # Return normalized response
+        return normalize_product_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating product: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating product: {str(e)}")
+
+
+@app.put("/api/products/{product_id}", response_model=Product)
+def update_product(product_id: int, payload: UpdateProduct):
+    """
+    Update an existing product
+    """
+    try:
+        existing = products_table.get_item(Key={"ProductId": product_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        item = {
+            "ProductId": product_id,
+            "ProductType": payload.productType,
+            "ProductSize": ddb_decimal(payload.productSize),
+            "BagMaterial": payload.bagMaterial,
+            "Quantity": ddb_decimal(payload.quantity),
+            "SheetGSM": ddb_decimal(payload.sheetGSM),
+            "SheetColor": payload.sheetColor,
+            "BorderGSM": ddb_decimal(payload.borderGSM),
+            "BorderColor": payload.borderColor,
+            "HandleType": payload.handleType,
+            "HandleColor": payload.handleColor,
+            "HandleGSM": ddb_decimal(payload.handleGSM),
+            "PrintingType": payload.printingType,
+            "PrintColor": payload.printColor,
+            "Color": payload.color,
+            "Design": payload.design,
+            "PlateBlockNumber": ddb_decimal(payload.plateBlockNumber),
+            "PlateAvailable": payload.plateAvailable,
+            "Rate": ddb_decimal(payload.rate),
+        }
+
+        products_table.put_item(Item=item)
+        return normalize_product_item(item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating product: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating product: {str(e)}")
+
+
+@app.delete("/api/products/{product_id}")
+def delete_product(product_id: int):
+    """
+    Delete a product by ID
+    """
+    try:
+        existing = products_table.get_item(Key={"ProductId": product_id}).get("Item")
+        if not existing:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        products_table.delete_item(Key={"ProductId": product_id})
+        return {"deleted": True, "productId": product_id}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except HTTPException:
+        raise
+
+
+@app.post("/api/products/search", response_model=List[Product])
+def search_products(filters: SearchProduct):
+    """
+    Search products with optional filters.
+    Supports filtering by:
+    - productType
+    - bagMaterial
+    - sheetColor
+    - borderColor
+    - handleColor
+    - printingType
+    - printColor
+    - color
+    - design (boolean)
+    - plateAvailable (boolean)
+    - minPrice / maxPrice (rate range)
+    """
+    try:
+        # Scan all items
+        items = products_table.scan().get("Items", [])
+
+        # Apply filters
+        filtered_items = []
+        for item in items:
+            # Check string filters
+            if filters.productType and item.get("ProductType") != filters.productType:
+                continue
+            if filters.bagMaterial and item.get("BagMaterial") != filters.bagMaterial:
+                continue
+            if filters.sheetColor and item.get("SheetColor") != filters.sheetColor:
+                continue
+            if filters.borderColor and item.get("BorderColor") != filters.borderColor:
+                continue
+            if filters.handleColor and item.get("HandleColor") != filters.handleColor:
+                continue
+            if filters.printingType and item.get("PrintingType") != filters.printingType:
+                continue
+            if filters.printColor and item.get("PrintColor") != filters.printColor:
+                continue
+            if filters.color and item.get("Color") != filters.color:
+                continue
+
+            # Check boolean filters
+            if filters.design is not None and item.get("Design") != filters.design:
+                continue
+            if filters.plateAvailable is not None and item.get("PlateAvailable") != filters.plateAvailable:
+                continue
+
+            # Check price range
+            rate = item.get("Rate")
+            if isinstance(rate, Decimal):
+                rate = float(rate)
+
+            if filters.minPrice is not None and rate < filters.minPrice:
+                continue
+            if filters.maxPrice is not None and rate > filters.maxPrice:
+                continue
+
+            filtered_items.append(item)
+
+        # Normalize and return
+        return [normalize_product_item(x) for x in filtered_items]
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except Exception as e:
+        logger.error(f"Error searching products: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error searching products: {str(e)}")
