@@ -1,8 +1,12 @@
-import os
 import boto3
+from config.settings import AWS_REGION, ACCOUNTS_TABLE, AGENTS_TABLE, PARTY_TABLE, PRODUCTS_TABLE, ORDERS_TABLE
 
-AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-ORDERS_TABLE = os.getenv("ORDERS_TABLE", "Orders")  # must be "Orders"
-
+# Initialize DynamoDB resource
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+
+# Get table references
+accounts_table = dynamodb.Table(ACCOUNTS_TABLE)
+agents_table = dynamodb.Table(AGENTS_TABLE)
+party_table = dynamodb.Table(PARTY_TABLE)
+products_table = dynamodb.Table(PRODUCTS_TABLE)
 orders_table = dynamodb.Table(ORDERS_TABLE)
