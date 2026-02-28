@@ -1,7 +1,7 @@
 import boto3
 from config.settings import AWS_REGION, ACCOUNTS_TABLE, AGENTS_TABLE, PARTY_TABLE, PRODUCTS_TABLE, ORDERS_TABLE
 
-# Initialize DynamoDB resource
+# Initialize DynamoDB resource for ap-south-1
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 # Get table references

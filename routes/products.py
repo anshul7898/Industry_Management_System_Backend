@@ -17,9 +17,21 @@ def format_validation_errors(errors: list) -> str:
     """Format Pydantic validation errors into a readable message"""
     error_messages = []
     for error in errors:
-        field = error['loc'][0] if error['loc'] else 'unknown'
-        message = error['msg']
-        error_messages.append(f"{field}: {message}")
+        field = error.get('loc', [])
+        if field:
+            field_name = field[0] if isinstance(field[0], str) else field[-1]
+        else:
+            field_name = 'unknown'
+
+        message = error.get('msg', 'Unknown error')
+        error_type = error.get('type', '')
+
+        # Create more readable error messages
+        if error_type == 'value_error':
+            error_messages.append(f"{field_name}: {message}")
+        else:
+            error_messages.append(f"{field_name}: {message}")
+
     return "; ".join(error_messages)
 
 
@@ -30,11 +42,13 @@ def list_products():
     """
     try:
         items = products_table.scan().get("Items", [])
+        logger.info(f"Listed {len(items)} products")
         return [normalize_product_item(x) for x in items]
     except ClientError as e:
+        logger.error(f"Database error listing products: {aws_error_detail(e)}")
         raise HTTPException(status_code=500, detail=aws_error_detail(e))
     except Exception as e:
-        logger.error(f"Error listing products: {str(e)}")
+        logger.error(f"Unexpected error listing products: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch products")
 
 
@@ -51,13 +65,17 @@ def get_product(product_id: int):
         item = resp.get("Item")
         if not item:
             raise HTTPException(status_code=404, detail="Product not found")
+
+        logger.info(f"Retrieved product {product_id}")
         return normalize_product_item(item)
-    except ClientError as e:
-        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+
     except HTTPException:
         raise
+    except ClientError as e:
+        logger.error(f"Database error getting product {product_id}: {aws_error_detail(e)}")
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
     except Exception as e:
-        logger.error(f"Error getting product {product_id}: {str(e)}")
+        logger.error(f"Unexpected error getting product {product_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch product")
 
 
@@ -125,6 +143,9 @@ def update_product(product_id: int, payload: UpdateProduct):
         if not existing:
             raise HTTPException(status_code=404, detail="Product not found")
 
+        # Log the incoming payload for debugging
+        logger.debug(f"Update payload for product {product_id}: {payload.dict()}")
+
         # Validation is automatically done by Pydantic
         item = {
             "ProductId": product_id,
@@ -156,6 +177,7 @@ def update_product(product_id: int, payload: UpdateProduct):
     except ValidationError as e:
         error_detail = format_validation_errors(e.errors())
         logger.warning(f"Validation error updating product {product_id}: {error_detail}")
+        logger.warning(f"Validation errors detail: {e.errors()}")
         raise HTTPException(status_code=422, detail=error_detail)
 
     except HTTPException:
@@ -258,6 +280,7 @@ def search_products(filters: SearchProduct):
 
             filtered_items.append(item)
 
+        logger.info(f"Search returned {len(filtered_items)} products out of {len(items)} total")
         return [normalize_product_item(x) for x in filtered_items]
 
     except ValidationError as e:
