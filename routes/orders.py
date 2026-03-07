@@ -111,10 +111,10 @@ def create_order(payload: CreateOrder):
             "State": payload.State,
             "Pincode": payload.Pincode,
             "Contact_Person1": payload.Contact_Person1,
-            "Contact_Person2": payload.Contact_Person2,  # Always include, even if None
-            "Mobile1": payload.Mobile1,  # Always include, even if None
-            "Mobile2": payload.Mobile2,  # Always include, even if None
-            "Email": payload.Email,  # Always include, even if None
+            "Contact_Person2": payload.Contact_Person2,
+            "Mobile1": payload.Mobile1,
+            "Mobile2": payload.Mobile2,
+            "Email": payload.Email,
             "ProductType": payload.ProductType,
             "ProductId": payload.ProductId,
             "ProductSize": payload.ProductSize,
@@ -136,7 +136,7 @@ def create_order(payload: CreateOrder):
             "PlateAvailable": payload.PlateAvailable,
         }
 
-        # Add optional fields only if provided (but keep the ones above)
+        # Add optional fields only if provided
         if payload.PlateBlockNumber:
             item["PlateBlockNumber"] = payload.PlateBlockNumber
 
@@ -183,10 +183,10 @@ def update_order(order_id: int, payload: UpdateOrder):
             "State": payload.State,
             "Pincode": payload.Pincode,
             "Contact_Person1": payload.Contact_Person1,
-            "Contact_Person2": payload.Contact_Person2,  # Always include, even if None
-            "Mobile1": payload.Mobile1,  # Always include, even if None
-            "Mobile2": payload.Mobile2,  # Always include, even if None
-            "Email": payload.Email,  # Always include, even if None
+            "Contact_Person2": payload.Contact_Person2,
+            "Mobile1": payload.Mobile1,
+            "Mobile2": payload.Mobile2,
+            "Email": payload.Email,
             "ProductType": payload.ProductType,
             "ProductId": payload.ProductId,
             "ProductSize": payload.ProductSize,
