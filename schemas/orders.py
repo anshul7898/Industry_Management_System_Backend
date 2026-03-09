@@ -1,8 +1,35 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional
+from typing import Optional, List
+
+
+class Product(BaseModel):
+    """Product schema for orders"""
+    ProductType: str = Field(..., min_length=1, description="Type of product")
+    ProductId: int = Field(..., gt=0, description="Product ID must be positive")
+    ProductSize: int = Field(..., gt=0, description="Product size must be positive")
+    BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
+    Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
+    SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
+    SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
+    BorderGSM: int = Field(..., gt=0, description="Border GSM must be positive")
+    BorderColor: str = Field(..., min_length=1, description="Color of the border")
+    HandleType: str = Field(..., min_length=1, description="Type of handle")
+    HandleColor: str = Field(..., min_length=1, description="Color of the handle")
+    HandleGSM: int = Field(..., gt=0, description="Handle GSM must be positive")
+    PrintingType: str = Field(..., min_length=1, description="Type of printing")
+    PrintColor: str = Field(..., min_length=1, description="Color for printing")
+    Color: str = Field(..., min_length=1, description="Main color")
+    Design: bool = Field(False, description="Whether product has design")
+    PlateBlockNumber: Optional[int] = Field(None, ge=0, description="Plate block number")
+    PlateAvailable: bool = Field(False, description="Whether plate is available")
+    Rate: float = Field(..., gt=0, description="Rate must be positive")
+    TotalAmount: float = Field(..., ge=0, description="Total amount must be non-negative")
+
+    model_config = ConfigDict(extra='allow', populate_by_name=True)
 
 
 class Order(BaseModel):
+    """Order response model with products array"""
     OrderId: int
     AgentId: int
     Party_Name: str
@@ -16,31 +43,13 @@ class Order(BaseModel):
     Mobile1: Optional[int] = None
     Mobile2: Optional[int] = None
     Email: Optional[str] = None
-    ProductType: str
-    ProductId: int
-    ProductSize: int
-    BagMaterial: str
-    Quantity: int
-    SheetGSM: int
-    SheetColor: str
-    BorderGSM: int
-    BorderColor: str
-    HandleType: str
-    HandleColor: str
-    HandleGSM: int
-    PrintingType: str
-    PrintColor: str
-    Color: str
-    Design: bool = False
-    PlateBlockNumber: Optional[int] = None
-    PlateAvailable: bool = False
-    Rate: float
-    TotalAmount: float
+    Products: List[Product] = Field(default_factory=list, description="List of products in the order")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
 
 
 class BaseOrderModel(BaseModel):
+    """Base model for order creation and updates"""
     AgentId: int = Field(..., gt=0, description="Agent ID must be positive")
     Party_Name: str = Field(..., min_length=1, max_length=255)
     AliasOrCompanyName: str = Field(..., min_length=1, max_length=255)
@@ -53,35 +62,16 @@ class BaseOrderModel(BaseModel):
     Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
     Email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-    ProductType: str
-    ProductId: int = Field(..., gt=0)
-    ProductSize: int = Field(..., gt=0)
-    BagMaterial: str
-    Quantity: int = Field(..., ge=0)
-    SheetGSM: int
-    SheetColor: str
-    BorderGSM: int
-    BorderColor: str
-    HandleType: str
-    HandleColor: str
-    HandleGSM: int
-    PrintingType: str
-    PrintColor: str
-    Color: str
-    Design: bool = Field(False, description="Whether product has design")
-    PlateBlockNumber: Optional[int] = Field(None, ge=0)
-    PlateAvailable: bool = Field(False, description="Whether plate is available")
-    Rate: float = Field(..., gt=0)
-    TotalAmount: float = Field(..., ge=0)
+    Products: List[Product] = Field(..., min_items=1, description="At least one product is required")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
 
 
 class CreateOrder(BaseOrderModel):
-    """Model for creating a new order"""
+    """Model for creating a new order with multiple products"""
     pass
 
 
 class UpdateOrder(BaseOrderModel):
-    """Model for updating an existing order"""
+    """Model for updating an existing order with multiple products"""
     pass
