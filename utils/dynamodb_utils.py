@@ -24,7 +24,7 @@ def decimal_to_python(obj: Any) -> Any:
 def convert_items_to_python(items: List[Dict]) -> List[Dict]:
     """
     Convert all DynamoDB items to proper Python types.
-    Handles nested Products arrays and ensures OrderId is a string.
+    Handles nested Products arrays and decimal conversion.
 
     Args:
         items: List of DynamoDB items
@@ -35,10 +35,6 @@ def convert_items_to_python(items: List[Dict]) -> List[Dict]:
     converted_items = []
     for item in items:
         converted_item = decimal_to_python(item)
-
-        # Ensure OrderId is a string
-        if "OrderId" in converted_item:
-            converted_item["OrderId"] = str(converted_item["OrderId"])
 
         # Ensure Products array exists and is properly formatted
         if "Products" not in converted_item:
@@ -54,7 +50,7 @@ def convert_items_to_python(items: List[Dict]) -> List[Dict]:
 def convert_item_to_python(item: Dict) -> Dict:
     """
     Convert a single DynamoDB item to proper Python types.
-    Handles nested Products arrays and ensures OrderId is a string.
+    Handles nested Products arrays and decimal conversion.
 
     Args:
         item: Single DynamoDB item
@@ -66,10 +62,6 @@ def convert_item_to_python(item: Dict) -> Dict:
         return {}
 
     converted_item = decimal_to_python(item)
-
-    # Ensure OrderId is a string
-    if "OrderId" in converted_item:
-        converted_item["OrderId"] = str(converted_item["OrderId"])
 
     # Ensure Products array exists and is properly formatted
     if "Products" not in converted_item:
@@ -83,34 +75,46 @@ def convert_item_to_python(item: Dict) -> Dict:
 def convert_product_for_storage(product: dict) -> dict:
     """
     Convert a product dict for DynamoDB storage.
-    Filters out None values and converts numeric fields to Decimal.
+    Converts numeric fields to Decimal and ensures all required fields are present.
 
     Args:
-        product: Product dictionary from frontend
+        product: Product dictionary from frontend/Pydantic model
 
     Returns:
-        Product dict with Decimal values, excluding None values
+        Product dict with Decimal values for numeric fields
     """
     if not product:
         return {}
 
     result = {}
 
-    # String fields - include even if None
+    # String fields - must be included
     string_fields = [
-        "ProductType", "SheetColor", "BorderColor", "HandleType",
-        "HandleColor", "PrintingType", "PrintColor", "Color", "BagMaterial"
+        "ProductType",
+        "BagMaterial",
+        "SheetColor",
+        "BorderColor",
+        "HandleType",
+        "HandleColor",
+        "PrintingType",
+        "PrintColor",
+        "Color",
     ]
 
     for field in string_fields:
         value = product.get(field)
         if value is not None:
-            result[field] = value
+            result[field] = str(value)
 
     # Numeric fields that should be integers
     int_fields = [
-        "ProductId", "ProductSize", "Quantity", "SheetGSM",
-        "BorderGSM", "HandleGSM", "PlateBlockNumber"
+        "ProductId",
+        "ProductSize",
+        "Quantity",
+        "SheetGSM",
+        "BorderGSM",
+        "HandleGSM",
+        "PlateBlockNumber",
     ]
 
     for field in int_fields:
@@ -121,8 +125,8 @@ def convert_product_for_storage(product: dict) -> dict:
             except (ValueError, TypeError):
                 result[field] = value
 
-    # Numeric fields that should be Decimal
-    decimal_fields = ["Rate", "TotalAmount"]
+    # Numeric fields that should be Decimal (for precision)
+    decimal_fields = ["Rate", "ProductAmount"]
 
     for field in decimal_fields:
         value = product.get(field)
