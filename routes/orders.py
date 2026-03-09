@@ -91,6 +91,10 @@ def create_order(payload: CreateOrder):
         logger.info("➕ Creating new order")
         logger.info(f"Payload received with {len(payload.Products)} product(s)")
 
+        # Validate TotalAmount
+        if payload.TotalAmount is None or payload.TotalAmount < 0:
+            raise ValueError("TotalAmount must be a valid non-negative number")
+
         # Generate unique numeric OrderId
         order_id = generate_order_id(payload.AgentId)
         logger.info(f"Generated OrderId: {order_id}")
@@ -101,12 +105,8 @@ def create_order(payload: CreateOrder):
         for idx, product in enumerate(payload.Products):
             logger.info(f"Processing product {idx + 1}")
 
-            # Convert Pydantic model to dict if needed
-            if hasattr(product, 'dict'):
-                product_dict = product.dict()
-            else:
-                product_dict = product if isinstance(product, dict) else product.__dict__
-
+            # Convert Pydantic model to dict
+            product_dict = product.model_dump()
             logger.info(f"Product {idx + 1} dict: {product_dict}")
 
             converted_product = convert_product_for_storage(product_dict)
@@ -131,12 +131,14 @@ def create_order(payload: CreateOrder):
             "Mobile1": payload.Mobile1,
             "Mobile2": payload.Mobile2,
             "Email": payload.Email,
+            "TotalAmount": Decimal(str(payload.TotalAmount)),
             "Products": ddb_products,
         }
 
         logger.info(f"📝 Putting item to DynamoDB: {order_id}")
         logger.info(f"Item keys: {list(item.keys())}")
         logger.info(f"Products in item: {len(item['Products'])}")
+        logger.info(f"TotalAmount: {item['TotalAmount']}")
 
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} created successfully with {len(ddb_products)} product(s)")
@@ -164,6 +166,10 @@ def update_order(order_id: int, payload: UpdateOrder):
         logger.info(f"Payload received with {len(payload.Products)} product(s)")
         logger.info(f"Using table: {orders_table.table_name}")
 
+        # Validate TotalAmount
+        if payload.TotalAmount is None or payload.TotalAmount < 0:
+            raise ValueError("TotalAmount must be a valid non-negative number")
+
         # Check if order exists
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing:
@@ -175,12 +181,8 @@ def update_order(order_id: int, payload: UpdateOrder):
         for idx, product in enumerate(payload.Products):
             logger.info(f"Processing product {idx + 1}")
 
-            # Convert Pydantic model to dict if needed
-            if hasattr(product, 'dict'):
-                product_dict = product.dict()
-            else:
-                product_dict = product if isinstance(product, dict) else product.__dict__
-
+            # Convert Pydantic model to dict
+            product_dict = product.model_dump()
             logger.info(f"Product {idx + 1} dict: {product_dict}")
 
             converted_product = convert_product_for_storage(product_dict)
@@ -205,11 +207,13 @@ def update_order(order_id: int, payload: UpdateOrder):
             "Mobile1": payload.Mobile1,
             "Mobile2": payload.Mobile2,
             "Email": payload.Email,
+            "TotalAmount": Decimal(str(payload.TotalAmount)),
             "Products": ddb_products,
         }
 
         logger.info(f"📝 Updating item in DynamoDB: {order_id}")
         logger.info(f"Products in item: {len(item['Products'])}")
+        logger.info(f"TotalAmount: {item['TotalAmount']}")
 
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} updated successfully with {len(ddb_products)} product(s)")

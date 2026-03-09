@@ -1,5 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
+from decimal import Decimal
 
 
 class Product(BaseModel):
@@ -23,9 +24,17 @@ class Product(BaseModel):
     PlateBlockNumber: Optional[int] = Field(None, ge=0, description="Plate block number")
     PlateAvailable: bool = Field(False, description="Whether plate is available")
     Rate: float = Field(..., gt=0, description="Rate must be positive")
-    TotalAmount: float = Field(..., ge=0, description="Total amount must be non-negative")
+    ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
+
+    @field_validator('Rate', 'ProductAmount', mode='before')
+    @classmethod
+    def convert_decimal_to_float(cls, v):
+        """Convert Decimal to float if needed"""
+        if isinstance(v, Decimal):
+            return float(v)
+        return v
 
 
 class Order(BaseModel):
@@ -44,8 +53,17 @@ class Order(BaseModel):
     Mobile2: Optional[int] = None
     Email: Optional[str] = None
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
+    TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
+
+    @field_validator('TotalAmount', mode='before')
+    @classmethod
+    def convert_total_decimal_to_float(cls, v):
+        """Convert Decimal to float if needed"""
+        if isinstance(v, Decimal):
+            return float(v)
+        return v
 
 
 class BaseOrderModel(BaseModel):
@@ -63,6 +81,7 @@ class BaseOrderModel(BaseModel):
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
     Email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
     Products: List[Product] = Field(..., min_items=1, description="At least one product is required")
+    TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
 
