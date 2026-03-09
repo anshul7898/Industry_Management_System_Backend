@@ -7,8 +7,11 @@ import traceback
 import time
 
 from schemas.orders import Order, CreateOrder, UpdateOrder
-from utils.helpers import aws_error_detail
-from utils.dynamodb_utils import convert_items_to_python, convert_item_to_python
+from utils.dynamodb_utils import (
+    convert_items_to_python,
+    convert_item_to_python,
+    convert_product_for_storage,
+)
 from db.dynamodb import orders_table
 
 logger = logging.getLogger("uvicorn.error")
@@ -21,13 +24,6 @@ def generate_order_id(agent_id: int) -> int:
     order_id = int(str(agent_id) + str(timestamp)[-6:])
     logger.info(f"Generated OrderId: {order_id} from AgentId: {agent_id}")
     return order_id
-
-
-def ddb_decimal(value) -> Decimal:
-    """Convert value to Decimal for DynamoDB storage"""
-    if value is None:
-        return None
-    return Decimal(str(value))
 
 
 @router.get("/orders", response_model=List[Order])
@@ -90,15 +86,35 @@ def get_order(order_id: int):
 
 @router.post("/orders", response_model=Order)
 def create_order(payload: CreateOrder):
-    """Create a new order in DynamoDB."""
+    """Create a new order in DynamoDB with multiple products."""
     try:
         logger.info("➕ Creating new order")
-        logger.info(f"Payload: {payload.dict()}")
+        logger.info(f"Payload received with {len(payload.Products)} product(s)")
 
         # Generate unique numeric OrderId
         order_id = generate_order_id(payload.AgentId)
         logger.info(f"Generated OrderId: {order_id}")
         logger.info(f"Using table: {orders_table.table_name}")
+
+        # Convert products to storage format
+        ddb_products = []
+        for idx, product in enumerate(payload.Products):
+            logger.info(f"Processing product {idx + 1}")
+
+            # Convert Pydantic model to dict if needed
+            if hasattr(product, 'dict'):
+                product_dict = product.dict()
+            else:
+                product_dict = product if isinstance(product, dict) else product.__dict__
+
+            logger.info(f"Product {idx + 1} dict: {product_dict}")
+
+            converted_product = convert_product_for_storage(product_dict)
+            logger.info(f"Product {idx + 1} after conversion: {converted_product}")
+
+            ddb_products.append(converted_product)
+
+        logger.info(f"✓ Converted {len(ddb_products)} product(s) for DynamoDB storage")
 
         # Build item with all required and optional fields
         item = {
@@ -115,38 +131,19 @@ def create_order(payload: CreateOrder):
             "Mobile1": payload.Mobile1,
             "Mobile2": payload.Mobile2,
             "Email": payload.Email,
-            "ProductType": payload.ProductType,
-            "ProductId": payload.ProductId,
-            "ProductSize": payload.ProductSize,
-            "BagMaterial": payload.BagMaterial,
-            "Quantity": payload.Quantity,
-            "SheetGSM": payload.SheetGSM,
-            "SheetColor": payload.SheetColor,
-            "BorderGSM": payload.BorderGSM,
-            "BorderColor": payload.BorderColor,
-            "HandleType": payload.HandleType,
-            "HandleColor": payload.HandleColor,
-            "HandleGSM": payload.HandleGSM,
-            "PrintingType": payload.PrintingType,
-            "PrintColor": payload.PrintColor,
-            "Color": payload.Color,
-            "Design": payload.Design,
-            "Rate": ddb_decimal(payload.Rate),
-            "TotalAmount": ddb_decimal(payload.TotalAmount),
-            "PlateAvailable": payload.PlateAvailable,
+            "Products": ddb_products,
         }
-
-        # Add optional fields only if provided
-        if payload.PlateBlockNumber:
-            item["PlateBlockNumber"] = payload.PlateBlockNumber
 
         logger.info(f"📝 Putting item to DynamoDB: {order_id}")
         logger.info(f"Item keys: {list(item.keys())}")
+        logger.info(f"Products in item: {len(item['Products'])}")
 
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} created successfully")
+        logger.info(f"✓ Order {order_id} created successfully with {len(ddb_products)} product(s)")
 
-        return convert_item_to_python(item)
+        # Convert for response
+        converted_item = convert_item_to_python(item)
+        return converted_item
 
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError creating order: {str(e)}")
@@ -161,9 +158,10 @@ def create_order(payload: CreateOrder):
 
 @router.put("/orders/{order_id}", response_model=Order)
 def update_order(order_id: int, payload: UpdateOrder):
-    """Update an existing order in DynamoDB."""
+    """Update an existing order in DynamoDB with multiple products."""
     try:
         logger.info(f"✏️ Updating order {order_id}")
+        logger.info(f"Payload received with {len(payload.Products)} product(s)")
         logger.info(f"Using table: {orders_table.table_name}")
 
         # Check if order exists
@@ -172,7 +170,27 @@ def update_order(order_id: int, payload: UpdateOrder):
             logger.warning(f"⚠️ Order {order_id} not found for update")
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
-        # Build item with updated payload - always include all fields
+        # Convert products to storage format
+        ddb_products = []
+        for idx, product in enumerate(payload.Products):
+            logger.info(f"Processing product {idx + 1}")
+
+            # Convert Pydantic model to dict if needed
+            if hasattr(product, 'dict'):
+                product_dict = product.dict()
+            else:
+                product_dict = product if isinstance(product, dict) else product.__dict__
+
+            logger.info(f"Product {idx + 1} dict: {product_dict}")
+
+            converted_product = convert_product_for_storage(product_dict)
+            logger.info(f"Product {idx + 1} after conversion: {converted_product}")
+
+            ddb_products.append(converted_product)
+
+        logger.info(f"✓ Converted {len(ddb_products)} product(s) for DynamoDB storage")
+
+        # Build item with updated payload
         item = {
             "OrderId": order_id,
             "AgentId": payload.AgentId,
@@ -187,35 +205,18 @@ def update_order(order_id: int, payload: UpdateOrder):
             "Mobile1": payload.Mobile1,
             "Mobile2": payload.Mobile2,
             "Email": payload.Email,
-            "ProductType": payload.ProductType,
-            "ProductId": payload.ProductId,
-            "ProductSize": payload.ProductSize,
-            "BagMaterial": payload.BagMaterial,
-            "Quantity": payload.Quantity,
-            "SheetGSM": payload.SheetGSM,
-            "SheetColor": payload.SheetColor,
-            "BorderGSM": payload.BorderGSM,
-            "BorderColor": payload.BorderColor,
-            "HandleType": payload.HandleType,
-            "HandleColor": payload.HandleColor,
-            "HandleGSM": payload.HandleGSM,
-            "PrintingType": payload.PrintingType,
-            "PrintColor": payload.PrintColor,
-            "Color": payload.Color,
-            "Design": payload.Design,
-            "Rate": ddb_decimal(payload.Rate),
-            "TotalAmount": ddb_decimal(payload.TotalAmount),
-            "PlateAvailable": payload.PlateAvailable,
+            "Products": ddb_products,
         }
 
-        # Add optional fields only if provided
-        if payload.PlateBlockNumber:
-            item["PlateBlockNumber"] = payload.PlateBlockNumber
+        logger.info(f"📝 Updating item in DynamoDB: {order_id}")
+        logger.info(f"Products in item: {len(item['Products'])}")
 
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} updated successfully")
+        logger.info(f"✓ Order {order_id} updated successfully with {len(ddb_products)} product(s)")
 
-        return convert_item_to_python(item)
+        # Convert for response
+        converted_item = convert_item_to_python(item)
+        return converted_item
 
     except HTTPException:
         raise
