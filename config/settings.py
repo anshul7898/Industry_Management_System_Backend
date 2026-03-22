@@ -1,8 +1,14 @@
 import os
+from dotenv import load_dotenv
 from typing import List
+
+# Load .env file FIRST before reading any env vars
+load_dotenv()
 
 # AWS Configuration
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 # DynamoDB Table Names
 ACCOUNTS_TABLE = os.getenv("ACCOUNTS_TABLE", "Accounts")
