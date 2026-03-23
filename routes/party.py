@@ -34,6 +34,47 @@ def list_parties():
         raise HTTPException(status_code=500, detail="Failed to fetch parties")
 
 
+# ── NEW: Lookup party by Party Name ───────────────────────────────
+@router.get("/party/by-name/{party_name}", response_model=Party)
+def get_party_by_name(party_name: str):
+    """
+    Scan the Party table for a record whose PartyName matches
+    the given party_name (case-insensitive). Returns the first match.
+    Used by the Old Order flow to auto-fill the New Order form.
+    """
+    try:
+        logger.info(f"🔍 Looking up party by name: {party_name}")
+        response = party_table.scan()
+        items = response.get("Items", [])
+
+        # Case-insensitive match on PartyName
+        match = next(
+            (item for item in items
+             if str(item.get("PartyName", "")).lower() == party_name.lower()),
+            None,
+        )
+
+        if not match:
+            logger.warning(f"⚠️ No party found with name: {party_name}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No party found with name '{party_name}'",
+            )
+
+        logger.info(f"✓ Found party: {match.get('PartyId')}")
+        return normalize_party_item(match)
+
+    except HTTPException:
+        raise
+    except ClientError as e:
+        logger.error(f"DynamoDB error looking up party by name: {aws_error_detail(e)}")
+        raise HTTPException(status_code=500, detail=aws_error_detail(e))
+    except Exception as e:
+        logger.error(f"Unexpected error looking up party by name: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to lookup party")
+# ─────────────────────────────────────────────────────────────────
+
+
 @router.get("/party/{party_id}", response_model=Party)
 def get_party(party_id: int):
     try:
@@ -56,7 +97,6 @@ def get_party(party_id: int):
 @router.post("/party", response_model=Party)
 def create_party(payload: CreateParty):
     try:
-        # Validation is automatically done by Pydantic
         party_id = get_next_party_id()
 
         item = {
@@ -101,12 +141,10 @@ def update_party(party_id: int, payload: UpdateParty):
         if party_id <= 0:
             raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
 
-        # Check if party exists
         existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
         if not existing:
             raise HTTPException(status_code=404, detail="Party not found")
 
-        # Validation is automatically done by Pydantic
         item = {
             "PartyId": party_id,
             "PartyName": payload.partyName,
