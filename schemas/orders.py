@@ -21,7 +21,7 @@ class Product(BaseModel):
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
     Color: str = Field(..., min_length=1, description="Main color")
     Design: bool = Field(False, description="Whether product has design")
-    PlateBlockNumber: Optional[int] = Field(None, ge=0, description="Plate block number")
+    PlateBlockNumber: Optional[str] = Field(None, description="Plate block number (Single/Double/Multi)")
     PlateAvailable: bool = Field(False, description="Whether plate is available")
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
@@ -35,6 +35,14 @@ class Product(BaseModel):
         if isinstance(v, Decimal):
             return float(v)
         return v
+
+    @field_validator('PlateBlockNumber', mode='before')
+    @classmethod
+    def coerce_plate_block_number_to_str(cls, v):
+        """Convert legacy integer values (e.g. 2, 4) stored in DynamoDB to string"""
+        if v is None:
+            return None
+        return str(v)
 
 
 class Order(BaseModel):
@@ -80,7 +88,7 @@ class BaseOrderModel(BaseModel):
     Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
     Email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-    Products: List[Product] = Field(..., min_items=1, description="At least one product is required")
+    Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
