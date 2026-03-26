@@ -19,7 +19,7 @@ class Product(BaseModel):
     HandleGSM: int = Field(..., gt=0, description="Handle GSM must be positive")
     PrintingType: str = Field(..., min_length=1, description="Type of printing")
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
-    Color: str = Field(..., min_length=1, description="Main color")
+    Color: Optional[str] = Field(None, description="Main color")  # Optional for legacy records
     Design: bool = Field(False, description="Whether product has design")
     PlateBlockNumber: Optional[str] = Field(None, description="Plate block number (Single/Double/Multi)")
     PlateAvailable: bool = Field(False, description="Whether plate is available")
