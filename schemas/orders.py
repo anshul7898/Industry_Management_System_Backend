@@ -6,7 +6,12 @@ from decimal import Decimal
 class Product(BaseModel):
     """Product schema for orders"""
     ProductType: str = Field(..., min_length=1, description="Type of product")
-    ProductId: int = Field(..., gt=0, description="Product ID must be positive")
+
+    # CHANGED: ProductId is optional for now
+    ProductId: Optional[int] = Field(
+        None, description="Product ID (optional for now)"
+    )
+
     ProductSize: int = Field(..., gt=0, description="Product size must be positive")
     BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
     Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
@@ -27,6 +32,19 @@ class Product(BaseModel):
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
+
+    @field_validator('ProductId', mode='before')
+    @classmethod
+    def coerce_empty_product_id_to_none(cls, v):
+        """
+        If frontend sends "" for an optional numeric field, convert it to None.
+        Also allow None through unchanged.
+        """
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
     @field_validator('Rate', 'ProductAmount', mode='before')
     @classmethod
