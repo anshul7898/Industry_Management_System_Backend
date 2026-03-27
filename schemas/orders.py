@@ -1,18 +1,25 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Union
 from decimal import Decimal
 
 
 class Product(BaseModel):
     """Product schema for orders"""
-    ProductType: str = Field(..., min_length=1, description="Type of product")
+    ProductType: str = Field(..., min_length=1, description="Type of product (Stitching or Machine)")
 
-    # CHANGED: ProductId is optional for now
+    # ProductCategory is optional, only used when ProductType is 'Machine'
+    ProductCategory: Optional[str] = Field(
+        None,
+        description="Product category (only for Machine type products: Leader Bag, D-Cut Bag, U-Cut Bag, Cake bag - old Pattern, Cake bag - New Pattern, Side Gaget Bag, Bottom Gaget Bag)"
+    )
+
+    # ProductId is optional for now
     ProductId: Optional[int] = Field(
         None, description="Product ID (optional for now)"
     )
 
-    ProductSize: int = Field(..., gt=0, description="Product size must be positive")
+    # ProductSize can be either int (for Stitching) or str (for Machine types)
+    ProductSize: Union[int, str] = Field(..., description="Product size (integer for Stitching, string for Machine)")
     BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
     Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
@@ -24,7 +31,7 @@ class Product(BaseModel):
     HandleGSM: int = Field(..., gt=0, description="Handle GSM must be positive")
     PrintingType: str = Field(..., min_length=1, description="Type of printing")
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
-    Color: Optional[str] = Field(None, description="Main color")  # Optional for legacy records
+    Color: Optional[str] = Field(None, description="Main color")
     Design: bool = Field(False, description="Whether product has design")
     PlateBlockNumber: Optional[str] = Field(None, description="Plate block number (Single/Double/Multi)")
     PlateAvailable: bool = Field(False, description="Whether plate is available")
@@ -36,14 +43,35 @@ class Product(BaseModel):
     @field_validator('ProductId', mode='before')
     @classmethod
     def coerce_empty_product_id_to_none(cls, v):
-        """
-        If frontend sends "" for an optional numeric field, convert it to None.
-        Also allow None through unchanged.
-        """
+        """If frontend sends "" for an optional numeric field, convert it to None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
             return None
+        return v
+
+    @field_validator('ProductCategory', mode='before')
+    @classmethod
+    def coerce_empty_product_category_to_none(cls, v):
+        """If frontend sends "" for ProductCategory, convert it to None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator('ProductSize', mode='before')
+    @classmethod
+    def coerce_product_size(cls, v):
+        """ProductSize can be int (for Stitching) or str (for Machine types)."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            try:
+                return int(v)
+            except ValueError:
+                return v
         return v
 
     @field_validator('Rate', 'ProductAmount', mode='before')
@@ -57,7 +85,7 @@ class Product(BaseModel):
     @field_validator('PlateBlockNumber', mode='before')
     @classmethod
     def coerce_plate_block_number_to_str(cls, v):
-        """Convert legacy integer values (e.g. 2, 4) stored in DynamoDB to string"""
+        """Convert legacy integer values stored in DynamoDB to string"""
         if v is None:
             return None
         return str(v)
