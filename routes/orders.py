@@ -109,8 +109,15 @@ def create_order(payload: CreateOrder):
             product_dict = product.model_dump()
             logger.info(f"Product {idx + 1} dict: {product_dict}")
 
+            # Log ProductCategory specifically
+            logger.info(f"Product {idx + 1} ProductCategory value: {product_dict.get('ProductCategory')}")
+
             converted_product = convert_product_for_storage(product_dict)
             logger.info(f"Product {idx + 1} after conversion: {converted_product}")
+
+            # Verify ProductCategory is in converted product
+            if "ProductCategory" not in converted_product:
+                logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
 
             ddb_products.append(converted_product)
 
@@ -138,6 +145,7 @@ def create_order(payload: CreateOrder):
         logger.info(f"📝 Putting item to DynamoDB: {order_id}")
         logger.info(f"Item keys: {list(item.keys())}")
         logger.info(f"Products in item: {len(item['Products'])}")
+        logger.info(f"First product keys: {list(item['Products'][0].keys()) if item['Products'] else 'No products'}")
         logger.info(f"TotalAmount: {item['TotalAmount']}")
 
         orders_table.put_item(Item=item)
@@ -185,8 +193,15 @@ def update_order(order_id: int, payload: UpdateOrder):
             product_dict = product.model_dump()
             logger.info(f"Product {idx + 1} dict: {product_dict}")
 
+            # Log ProductCategory specifically
+            logger.info(f"Product {idx + 1} ProductCategory value: {product_dict.get('ProductCategory')}")
+
             converted_product = convert_product_for_storage(product_dict)
             logger.info(f"Product {idx + 1} after conversion: {converted_product}")
+
+            # Verify ProductCategory is in converted product
+            if "ProductCategory" not in converted_product:
+                logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
 
             ddb_products.append(converted_product)
 
@@ -213,6 +228,7 @@ def update_order(order_id: int, payload: UpdateOrder):
 
         logger.info(f"📝 Updating item in DynamoDB: {order_id}")
         logger.info(f"Products in item: {len(item['Products'])}")
+        logger.info(f"First product keys: {list(item['Products'][0].keys()) if item['Products'] else 'No products'}")
         logger.info(f"TotalAmount: {item['TotalAmount']}")
 
         orders_table.put_item(Item=item)

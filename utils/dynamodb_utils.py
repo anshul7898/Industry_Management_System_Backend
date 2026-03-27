@@ -1,145 +1,97 @@
+"""DynamoDB utility functions for data conversion."""
+
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
+import logging
+
+logger = logging.getLogger("uvicorn.error")
 
 
-def decimal_to_python(obj: Any) -> Any:
+def convert_item_to_python(item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Convert DynamoDB Decimal types to Python int/float.
-    This handles the conversion of all Decimal objects returned by boto3.
-    Recursively processes nested structures including Products arrays.
+    Recursively convert DynamoDB item to Python types.
+    Handles Decimal → float, nested dicts, and lists.
     """
-    if isinstance(obj, Decimal):
-        # Check if it's an integer or float
-        if obj % 1 == 0:
-            return int(obj)
+    if isinstance(item, dict):
+        return {k: convert_item_to_python(v) for k, v in item.items()}
+    elif isinstance(item, list):
+        return [convert_item_to_python(v) for v in item]
+    elif isinstance(item, Decimal):
+        # Convert Decimal to float, preserving precision for monetary values
+        return float(item)
+    else:
+        return item
+
+
+def convert_items_to_python(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert a list of DynamoDB items to Python types."""
+    return [convert_item_to_python(item) for item in items]
+
+
+def convert_product_for_storage(product: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a product dict to DynamoDB storage format.
+    Ensures all fields are properly typed and ProductCategory is included.
+    """
+    logger.info(f"Converting product to storage format: {product}")
+
+    # Start with all fields that should be stored
+    stored_product = {
+        "ProductType": product.get("ProductType"),
+        "ProductCategory": product.get("ProductCategory"),  # FIX: Include ProductCategory
+        "ProductId": product.get("ProductId"),
+        "ProductSize": product.get("ProductSize"),
+        "BagMaterial": product.get("BagMaterial"),
+        "Quantity": int(product.get("Quantity", 0)),
+        "SheetGSM": int(product.get("SheetGSM", 0)),
+        "SheetColor": product.get("SheetColor"),
+        "BorderGSM": int(product.get("BorderGSM", 0)),
+        "BorderColor": product.get("BorderColor"),
+        "HandleType": product.get("HandleType"),
+        "HandleColor": product.get("HandleColor"),
+        "HandleGSM": int(product.get("HandleGSM", 0)),
+        "PrintingType": product.get("PrintingType"),
+        "PrintColor": product.get("PrintColor"),
+        "Color": product.get("Color"),
+        "Design": bool(product.get("Design", False)),
+        "PlateBlockNumber": product.get("PlateBlockNumber"),
+        "PlateAvailable": bool(product.get("PlateAvailable", False)),
+        "Rate": Decimal(str(product.get("Rate", 0))),
+        "ProductAmount": Decimal(str(product.get("ProductAmount", 0))),
+    }
+
+    # Remove None values to keep DynamoDB clean (optional custom fields)
+    # But keep ProductCategory even if None for consistency
+    cleaned_product = {
+        k: v for k, v in stored_product.items()
+        if v is not None or k in ["ProductCategory", "ProductId"]  # Keep these even if None
+    }
+
+    logger.info(f"Product after storage conversion: {cleaned_product}")
+    return cleaned_product
+
+
+def convert_product_from_storage(product: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a product from DynamoDB storage format to Python types.
+    Handles Decimal → float conversion.
+    """
+    if not isinstance(product, dict):
+        return product
+
+    converted = {}
+    for key, value in product.items():
+        if isinstance(value, Decimal):
+            converted[key] = float(value)
+        elif isinstance(value, dict):
+            converted[key] = convert_product_from_storage(value)
+        elif isinstance(value, list):
+            converted[key] = [
+                convert_product_from_storage(item) if isinstance(item, dict) else
+                (float(item) if isinstance(item, Decimal) else item)
+                for item in value
+            ]
         else:
-            return float(obj)
-    elif isinstance(obj, dict):
-        return {k: decimal_to_python(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [decimal_to_python(item) for item in obj]
-    return obj
+            converted[key] = value
 
-
-def convert_items_to_python(items: List[Dict]) -> List[Dict]:
-    """
-    Convert all DynamoDB items to proper Python types.
-    Handles nested Products arrays and decimal conversion.
-
-    Args:
-        items: List of DynamoDB items
-
-    Returns:
-        List of converted items with proper Python types
-    """
-    converted_items = []
-    for item in items:
-        converted_item = decimal_to_python(item)
-
-        # Ensure Products array exists and is properly formatted
-        if "Products" not in converted_item:
-            converted_item["Products"] = []
-        elif not isinstance(converted_item["Products"], list):
-            converted_item["Products"] = [converted_item["Products"]]
-
-        converted_items.append(converted_item)
-
-    return converted_items
-
-
-def convert_item_to_python(item: Dict) -> Dict:
-    """
-    Convert a single DynamoDB item to proper Python types.
-    Handles nested Products arrays and decimal conversion.
-
-    Args:
-        item: Single DynamoDB item
-
-    Returns:
-        Converted item with proper Python types
-    """
-    if not item:
-        return {}
-
-    converted_item = decimal_to_python(item)
-
-    # Ensure Products array exists and is properly formatted
-    if "Products" not in converted_item:
-        converted_item["Products"] = []
-    elif not isinstance(converted_item["Products"], list):
-        converted_item["Products"] = [converted_item["Products"]]
-
-    return converted_item
-
-
-def convert_product_for_storage(product: dict) -> dict:
-    """
-    Convert a product dict for DynamoDB storage.
-    Converts numeric fields to Decimal and ensures all required fields are present.
-
-    Args:
-        product: Product dictionary from frontend/Pydantic model
-
-    Returns:
-        Product dict with Decimal values for numeric fields
-    """
-    if not product:
-        return {}
-
-    result = {}
-
-    # String fields - must be included
-    string_fields = [
-        "ProductType",
-        "BagMaterial",
-        "SheetColor",
-        "BorderColor",
-        "HandleType",
-        "HandleColor",
-        "PrintingType",
-        "PrintColor",
-        "Color",
-    ]
-
-    for field in string_fields:
-        value = product.get(field)
-        if value is not None:
-            result[field] = str(value)
-
-    # Numeric fields that should be integers
-    int_fields = [
-        "ProductId",
-        "ProductSize",
-        "Quantity",
-        "SheetGSM",
-        "BorderGSM",
-        "HandleGSM",
-        "PlateBlockNumber",
-    ]
-
-    for field in int_fields:
-        value = product.get(field)
-        if value is not None:
-            try:
-                result[field] = int(value)
-            except (ValueError, TypeError):
-                result[field] = value
-
-    # Numeric fields that should be Decimal (for precision)
-    decimal_fields = ["Rate", "ProductAmount"]
-
-    for field in decimal_fields:
-        value = product.get(field)
-        if value is not None:
-            try:
-                result[field] = Decimal(str(value))
-            except (ValueError, TypeError):
-                result[field] = value
-
-    # Boolean fields
-    bool_fields = ["Design", "PlateAvailable"]
-    for field in bool_fields:
-        value = product.get(field)
-        result[field] = bool(value) if value is not None else False
-
-    return result
+    return converted
