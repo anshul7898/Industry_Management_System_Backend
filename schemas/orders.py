@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List, Union
 from decimal import Decimal
+import re
 
 
 class Product(BaseModel):
@@ -22,7 +23,7 @@ class Product(BaseModel):
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
 
-    # ✅ Optional for Machine type — no gt constraint so that missing/0 values don't fail response validation
+    # ✅ Optional for Machine type — no gt constraint so missing/0 values don't fail response validation
     BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
     BorderColor: Optional[str] = Field(None, description="Color of the border (not required for Machine type)")
 
@@ -77,7 +78,7 @@ class Product(BaseModel):
     @field_validator('Rate', 'ProductAmount', mode='before')
     @classmethod
     def convert_decimal_to_float(cls, v):
-        """Convert Decimal to float if needed"""
+        """Convert Decimal to float if needed."""
         if isinstance(v, Decimal):
             return float(v)
         return v
@@ -85,7 +86,7 @@ class Product(BaseModel):
     @field_validator('PlateBlockNumber', mode='before')
     @classmethod
     def coerce_plate_block_number_to_str(cls, v):
-        """Convert legacy integer values stored in DynamoDB to string"""
+        """Convert legacy integer values stored in DynamoDB to string."""
         if v is None:
             return None
         return str(v)
@@ -100,7 +101,6 @@ class Product(BaseModel):
             return None
         return v
 
-    # ✅ Also coerce 0 → None since DynamoDB may return 0 for a missing numeric field
     @field_validator('BorderGSM', mode='before')
     @classmethod
     def coerce_empty_border_gsm_to_none(cls, v):
@@ -128,6 +128,7 @@ class Order(BaseModel):
     Contact_Person2: Optional[str] = None
     Mobile1: Optional[int] = None
     Mobile2: Optional[int] = None
+    # ✅ Email is optional in the response model
     Email: Optional[str] = None
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
@@ -137,7 +138,7 @@ class Order(BaseModel):
     @field_validator('TotalAmount', mode='before')
     @classmethod
     def convert_total_decimal_to_float(cls, v):
-        """Convert Decimal to float if needed"""
+        """Convert Decimal to float if needed."""
         if isinstance(v, Decimal):
             return float(v)
         return v
@@ -156,11 +157,30 @@ class BaseOrderModel(BaseModel):
     Contact_Person2: Optional[str] = Field(None, max_length=255)
     Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
-    Email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    # ✅ Email is now Optional — no required constraint, format validated only when provided
+    Email: Optional[str] = Field(None, max_length=255)
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='allow', populate_by_name=True)
+
+    @field_validator('Email', mode='before')
+    @classmethod
+    def validate_optional_email(cls, v):
+        """
+        Email is optional.
+        - None / empty string  → stored as None (no error).
+        - Non-empty string     → must match the email pattern, otherwise raise.
+        """
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        # Only validate format when a real value is supplied
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(pattern, str(v)):
+            raise ValueError('Please enter a valid email address (e.g., user@example.com)')
+        return v
 
 
 class CreateOrder(BaseOrderModel):
