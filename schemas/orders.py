@@ -7,25 +7,25 @@ class Product(BaseModel):
     """Product schema for orders"""
     ProductType: str = Field(..., min_length=1, description="Type of product (Stitching or Machine)")
 
-    # ProductCategory is optional, only used when ProductType is 'Machine'
     ProductCategory: Optional[str] = Field(
         None,
-        description="Product category (only for Machine type products: Leader Bag, D-Cut Bag, U-Cut Bag, Cake bag - old Pattern, Cake bag - New Pattern, Side Gaget Bag, Bottom Gaget Bag)"
+        description="Product category (only for Machine type products)"
     )
 
-    # ProductId is optional for now
     ProductId: Optional[int] = Field(
         None, description="Product ID (optional for now)"
     )
 
-    # ProductSize can be either int (for Stitching) or str (for Machine types)
     ProductSize: Union[int, str] = Field(..., description="Product size (integer for Stitching, string for Machine)")
     BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
     Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
-    BorderGSM: int = Field(..., gt=0, description="Border GSM must be positive")
-    BorderColor: str = Field(..., min_length=1, description="Color of the border")
+
+    # ✅ Optional for Machine type — no gt constraint so that missing/0 values don't fail response validation
+    BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
+    BorderColor: Optional[str] = Field(None, description="Color of the border (not required for Machine type)")
+
     HandleType: str = Field(..., min_length=1, description="Type of handle")
     HandleColor: str = Field(..., min_length=1, description="Color of the handle")
     HandleGSM: int = Field(..., gt=0, description="Handle GSM must be positive")
@@ -89,6 +89,29 @@ class Product(BaseModel):
         if v is None:
             return None
         return str(v)
+
+    @field_validator('BorderColor', mode='before')
+    @classmethod
+    def coerce_empty_border_color_to_none(cls, v):
+        """If frontend sends "" or null for BorderColor, convert it to None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    # ✅ Also coerce 0 → None since DynamoDB may return 0 for a missing numeric field
+    @field_validator('BorderGSM', mode='before')
+    @classmethod
+    def coerce_empty_border_gsm_to_none(cls, v):
+        """Convert null, empty string, or 0 to None — 0 is not a valid GSM value."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if v == 0:
+            return None
+        return v
 
 
 class Order(BaseModel):
