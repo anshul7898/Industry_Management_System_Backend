@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from botocore.exceptions import ClientError
 import boto3
 from config.settings import AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -25,19 +26,52 @@ SIZE_TABLE_MAP = {
     "handle-bag":   "Handle_Bag_Size_Table",
 }
 
+CATEGORY_TO_SIZE_KEY = {
+    "Stitching":              "stitching",
+    "D-Cut Bag":              "d-cut",
+    "U-Cut Bag":              "u-cut",
+    "Cake Bag - Old Pattern": "cake-bag-old",
+    "Cake Bag - New Pattern": "cake-bag-new",
+    "Side Gaget Bag":         "side-gaget",
+    "Bottom Gaget Bag":       "bottom-gaget",
+    "Handle Bag":             "handle-bag",
+}
+
+
+class AddSizeRequest(BaseModel):
+    size: str
+
+
+def scan_all_items(table) -> list:
+    """Full paginated scan of a DynamoDB table, returns all raw items."""
+    response = table.scan()
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+        items.extend(response.get("Items", []))
+    return items
+
+
+def get_next_id(items: list) -> int:
+    """
+    Derive the next numeric ID from existing items.
+    ID is stored as a Number in DynamoDB; boto3 returns it as Decimal.
+    """
+    if not items:
+        return 1
+    max_id = max(
+        int(item.get("ID", 0))
+        for item in items
+        if item.get("ID") is not None
+    )
+    return max_id + 1
+
 
 def scan_size_table(table_name: str) -> list:
     """Scan a size table and return [{label, value}] options."""
     table = dynamodb.Table(table_name)
-    response = table.scan()
-    items = response.get("Items", [])
+    items = scan_all_items(table)
 
-    # Support pagination
-    while "LastEvaluatedKey" in response:
-        response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
-        items.extend(response.get("Items", []))
-
-    # Each item is expected to have a 'Size' attribute
     sizes = sorted(
         set(
             str(item.get("Size") or item.get("size", ""))
@@ -62,6 +96,63 @@ def get_sizes(category: str):
         return {"category": category, "options": options}
     except ClientError as e:
         logger.error(f"DynamoDB error fetching sizes for {category}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"DynamoDB Error: {e.response['Error']['Message']}"
+        )
+
+
+@router.post("/sizes/{category}")
+def add_size(category: str, body: AddSizeRequest):
+    """
+    Add a new size value to the given category's DynamoDB table.
+    ID is auto-incremented as a Number (matches DynamoDB key type N).
+    Duplicate sizes (case-insensitive) are silently ignored.
+    Returns the full updated list of size options for the category.
+    """
+    table_name = SIZE_TABLE_MAP.get(category.lower())
+    if not table_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No size table found for category '{category}'"
+        )
+
+    size_value = body.size.strip()
+    if not size_value:
+        raise HTTPException(status_code=400, detail="Size value cannot be empty.")
+
+    try:
+        table = dynamodb.Table(table_name)
+
+        # ── Fetch all existing items (needed for duplicate check + next ID) ──
+        existing_items = scan_all_items(table)
+
+        # ── Duplicate check (case-insensitive) ───────────────────────────────
+        for item in existing_items:
+            existing_size = str(item.get("Size") or item.get("size", ""))
+            if existing_size.lower() == size_value.lower():
+                logger.info(
+                    f"Size '{size_value}' already exists in {table_name}, skipping insert."
+                )
+                options = scan_size_table(table_name)
+                return {"category": category, "options": options, "duplicate": True}
+
+        # ── Auto-increment numeric ID (matches DynamoDB key type N) ──────────
+        new_id = get_next_id(existing_items)
+
+        table.put_item(Item={
+            "ID":   new_id,      # ✅ Number — matches partition key type N
+            "Size": size_value,  # ✅ Size string value
+        })
+        logger.info(
+            f"Added size '{size_value}' with ID={new_id} to {table_name}"
+        )
+
+        options = scan_size_table(table_name)
+        return {"category": category, "options": options}
+
+    except ClientError as e:
+        logger.error(f"DynamoDB error adding size for {category}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"DynamoDB Error: {e.response['Error']['Message']}"
