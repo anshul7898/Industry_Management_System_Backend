@@ -29,31 +29,68 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    ✅ None values are excluded so DynamoDB never receives a null attribute
-       (e.g. BorderGSM / BorderColor are omitted entirely for Machine-type products).
-    ✅ PlateRate is included when provided (even 0.0 is stored as Decimal).
+    ✅ None values are excluded so DynamoDB never receives a null attribute.
+    ✅ PlateRate is stored as Decimal when provided.
+    ✅ PlateType ("Old"/"New") is stored as a plain string — never coerced to Decimal.
+    ✅ PlateAvailable is fully removed — not stored, not forwarded.
     """
     ddb_products = []
     for idx, product in enumerate(products):
         logger.info(f"Processing product {idx + 1}")
 
-        # Convert Pydantic model to dict, excluding None values
-        product_dict = {k: v for k, v in product.model_dump().items() if v is not None}
+        # Step 1 — dump to plain dict
+        raw = product.model_dump()
 
-        # ✅ Special handling for PlateRate: include it even when 0.0
-        #    model_dump() excludes None but 0.0 passes through naturally.
-        #    However if the user explicitly sent 0, we want to store it.
-        #    The None-filter above already keeps 0.0, so no extra work needed.
-        logger.info(f"Product {idx + 1} dict (None-filtered): {product_dict}")
-        logger.info(f"Product {idx + 1} ProductCategory value: {product_dict.get('ProductCategory')}")
-        logger.info(f"Product {idx + 1} PlateRate value: {product_dict.get('PlateRate')}")
+        # Step 2 — explicitly drop PlateAvailable at the source
+        #           (schema uses extra='ignore' so it won't be in raw,
+        #            but this is a belt-and-suspenders guard)
+        raw.pop("PlateAvailable", None)
 
+        # Step 3 — capture PlateType before None-filter
+        plate_type = raw.get("PlateType")  # "Old", "New", or None
+
+        # Step 4 — filter out None values (DynamoDB does not accept nulls)
+        product_dict = {k: v for k, v in raw.items() if v is not None}
+
+        # Step 5 — convert known numeric fields to Decimal for DynamoDB
+        #           String fields (PlateType, SheetColor, etc.) are NEVER touched here
+        for numeric_field in (
+            "Rate", "ProductAmount", "PlateRate",
+            "SheetGSM", "BorderGSM", "HandleGSM", "Quantity",
+        ):
+            if numeric_field in product_dict:
+                try:
+                    product_dict[numeric_field] = Decimal(str(product_dict[numeric_field]))
+                except Exception:
+                    pass
+
+        # Step 6 — explicitly set/clear PlateType so it is never lost or corrupted
+        if plate_type in ("Old", "New"):
+            product_dict["PlateType"] = plate_type   # stored as DynamoDB String (S)
+        else:
+            product_dict.pop("PlateType", None)       # omit entirely if not set
+
+        logger.info(f"Product {idx + 1} final dict: {product_dict}")
+        logger.info(f"Product {idx + 1} PlateType : {product_dict.get('PlateType')}")
+        logger.info(f"Product {idx + 1} PlateRate : {product_dict.get('PlateRate')}")
+        logger.info(f"Product {idx + 1} ProductCategory: {product_dict.get('ProductCategory')}")
+
+        # Step 7 — run through DynamoDB utility (handles any remaining type conversions)
         converted_product = convert_product_for_storage(product_dict)
-        logger.info(f"Product {idx + 1} after conversion: {converted_product}")
+
+        # Step 8 — safety net: restore PlateType if convert_product_for_storage dropped it
+        if plate_type in ("Old", "New"):
+            if converted_product.get("PlateType") != plate_type:
+                logger.warning(
+                    f"⚠️ PlateType corrupted by convert_product_for_storage "
+                    f"— restoring to '{plate_type}'"
+                )
+                converted_product["PlateType"] = plate_type
 
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
 
+        logger.info(f"Product {idx + 1} after conversion: {converted_product}")
         ddb_products.append(converted_product)
 
     logger.info(f"✓ Converted {len(ddb_products)} product(s) for DynamoDB storage")
@@ -63,8 +100,7 @@ def build_products_for_storage(products) -> list:
 def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     """
     Build the DynamoDB item dict for an order.
-    ✅ Optional top-level fields that are None are excluded to avoid
-       DynamoDB null-attribute errors.
+    ✅ Optional top-level fields that are None are excluded.
     """
     item = {
         "OrderId": order_id,
@@ -80,7 +116,6 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         "Products": ddb_products,
     }
 
-    # ✅ Only include optional fields when they have a value
     if payload.Contact_Person2 is not None:
         item["Contact_Person2"] = payload.Contact_Person2
     if payload.Mobile1 is not None:
@@ -111,8 +146,6 @@ def list_orders():
 
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError listing orders: {str(e)}")
-        logger.error(f"Error Code: {e.response['Error']['Code']}")
-        logger.error(f"Error Message: {e.response['Error']['Message']}")
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
         logger.error(f"❌ Unexpected error listing orders: {str(e)}")
@@ -125,13 +158,10 @@ def get_order(order_id: int):
     """Retrieve a specific order by Order ID."""
     try:
         logger.info(f"🔍 Fetching order {order_id}")
-        logger.info(f"Using table: {orders_table.table_name}")
-
         response = orders_table.get_item(Key={"OrderId": order_id})
         order = response.get("Item")
 
         if not order:
-            logger.warning(f"⚠️ Order {order_id} not found")
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
         converted_order = convert_item_to_python(order)
@@ -142,8 +172,6 @@ def get_order(order_id: int):
         raise
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError fetching order {order_id}: {str(e)}")
-        logger.error(f"Error Code: {e.response['Error']['Code']}")
-        logger.error(f"Error Message: {e.response['Error']['Message']}")
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
         logger.error(f"❌ Unexpected error fetching order {order_id}: {str(e)}")
@@ -163,29 +191,18 @@ def create_order(payload: CreateOrder):
 
         order_id = generate_order_id(payload.AgentId)
         logger.info(f"Generated OrderId: {order_id}")
-        logger.info(f"Using table: {orders_table.table_name}")
 
-        # ✅ Use shared helper — None fields (e.g. BorderGSM for Machine) are excluded
         ddb_products = build_products_for_storage(payload.Products)
-
         item = build_order_item(order_id, payload, ddb_products)
 
         logger.info(f"📝 Putting item to DynamoDB: {order_id}")
-        logger.info(f"Item keys: {list(item.keys())}")
-        logger.info(f"Products in item: {len(item['Products'])}")
-        logger.info(f"First product keys: {list(item['Products'][0].keys()) if item['Products'] else 'No products'}")
-        logger.info(f"TotalAmount: {item['TotalAmount']}")
-
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} created successfully with {len(ddb_products)} product(s)")
 
-        converted_item = convert_item_to_python(item)
-        return converted_item
+        return convert_item_to_python(item)
 
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError creating order: {str(e)}")
-        logger.error(f"Error Code: {e.response['Error']['Code']}")
-        logger.error(f"Error Message: {e.response['Error']['Message']}")
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
         logger.error(f"❌ Unexpected error creating order: {str(e)}")
@@ -199,38 +216,27 @@ def update_order(order_id: int, payload: UpdateOrder):
     try:
         logger.info(f"✏️ Updating order {order_id}")
         logger.info(f"Payload received with {len(payload.Products)} product(s)")
-        logger.info(f"Using table: {orders_table.table_name}")
 
         if payload.TotalAmount is None or payload.TotalAmount < 0:
             raise ValueError("TotalAmount must be a valid non-negative number")
 
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing:
-            logger.warning(f"⚠️ Order {order_id} not found for update")
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
-        # ✅ Use shared helper — None fields (e.g. BorderGSM for Machine) are excluded
         ddb_products = build_products_for_storage(payload.Products)
-
         item = build_order_item(order_id, payload, ddb_products)
 
         logger.info(f"📝 Updating item in DynamoDB: {order_id}")
-        logger.info(f"Products in item: {len(item['Products'])}")
-        logger.info(f"First product keys: {list(item['Products'][0].keys()) if item['Products'] else 'No products'}")
-        logger.info(f"TotalAmount: {item['TotalAmount']}")
-
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} updated successfully with {len(ddb_products)} product(s)")
 
-        converted_item = convert_item_to_python(item)
-        return converted_item
+        return convert_item_to_python(item)
 
     except HTTPException:
         raise
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError updating order {order_id}: {str(e)}")
-        logger.error(f"Error Code: {e.response['Error']['Code']}")
-        logger.error(f"Error Message: {e.response['Error']['Message']}")
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
         logger.error(f"❌ Unexpected error updating order {order_id}: {str(e)}")
@@ -243,11 +249,9 @@ def delete_order(order_id: int):
     """Delete an order from DynamoDB."""
     try:
         logger.info(f"🗑️ Deleting order {order_id}")
-        logger.info(f"Using table: {orders_table.table_name}")
 
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing:
-            logger.warning(f"⚠️ Order {order_id} not found for deletion")
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
         orders_table.delete_item(Key={"OrderId": order_id})
@@ -263,8 +267,6 @@ def delete_order(order_id: int):
         raise
     except ClientError as e:
         logger.error(f"❌ DynamoDB ClientError deleting order {order_id}: {str(e)}")
-        logger.error(f"Error Code: {e.response['Error']['Code']}")
-        logger.error(f"Error Message: {e.response['Error']['Message']}")
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
         logger.error(f"❌ Unexpected error deleting order {order_id}: {str(e)}")
