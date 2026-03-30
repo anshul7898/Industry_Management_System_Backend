@@ -23,7 +23,6 @@ class Product(BaseModel):
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
 
-    # ✅ Optional for Machine type — no gt constraint so missing/0 values don't fail response validation
     BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
     BorderColor: Optional[str] = Field(None, description="Color of the border (not required for Machine type)")
 
@@ -35,20 +34,19 @@ class Product(BaseModel):
     Color: Optional[str] = Field(None, description="Main color")
     Design: bool = Field(False, description="Whether product has design")
     PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
-    PlateAvailable: bool = Field(False, description="Whether plate is available")
 
-    # ✅ NEW: PlateRate — optional, rate of the printing plate
+    # ✅ PlateAvailable completely removed — PlateType replaces it
+    PlateType: Optional[str] = Field(None, description="Plate type: 'Old' or 'New'")
     PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
 
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
-    model_config = ConfigDict(extra='allow', populate_by_name=True)
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)  # ✅ 'ignore' drops unknown fields like PlateAvailable from old records
 
     @field_validator('ProductId', mode='before')
     @classmethod
     def coerce_empty_product_id_to_none(cls, v):
-        """If frontend sends "" for an optional numeric field, convert it to None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -58,7 +56,6 @@ class Product(BaseModel):
     @field_validator('ProductCategory', mode='before')
     @classmethod
     def coerce_empty_product_category_to_none(cls, v):
-        """If frontend sends "" for ProductCategory, convert it to None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -68,7 +65,6 @@ class Product(BaseModel):
     @field_validator('ProductSize', mode='before')
     @classmethod
     def coerce_product_size(cls, v):
-        """ProductSize can be int (for Stitching) or str (for Machine types)."""
         if v is None:
             return None
         if isinstance(v, str):
@@ -82,12 +78,10 @@ class Product(BaseModel):
     @field_validator('Rate', 'ProductAmount', mode='before')
     @classmethod
     def convert_decimal_to_float(cls, v):
-        """Convert Decimal to float if needed."""
         if isinstance(v, Decimal):
             return float(v)
         return v
 
-    # ✅ NEW validator: converts DynamoDB Decimal → float for PlateRate
     @field_validator('PlateRate', mode='before')
     @classmethod
     def convert_plate_rate_to_float(cls, v):
@@ -106,15 +100,25 @@ class Product(BaseModel):
     @field_validator('PlateBlockNumber', mode='before')
     @classmethod
     def coerce_plate_block_number_to_str(cls, v):
-        """Convert legacy integer values stored in DynamoDB to string."""
         if v is None:
             return None
         return str(v)
 
+    @field_validator('PlateType', mode='before')
+    @classmethod
+    def coerce_plate_type(cls, v):
+        """Normalise PlateType — only 'Old' and 'New' are valid; anything else → None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, str) and v.strip() in ("Old", "New"):
+            return v.strip()
+        return None
+
     @field_validator('BorderColor', mode='before')
     @classmethod
     def coerce_empty_border_color_to_none(cls, v):
-        """If frontend sends "" or null for BorderColor, convert it to None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -124,7 +128,6 @@ class Product(BaseModel):
     @field_validator('BorderGSM', mode='before')
     @classmethod
     def coerce_empty_border_gsm_to_none(cls, v):
-        """Convert null, empty string, or 0 to None — 0 is not a valid GSM value."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -148,17 +151,15 @@ class Order(BaseModel):
     Contact_Person2: Optional[str] = None
     Mobile1: Optional[int] = None
     Mobile2: Optional[int] = None
-    # ✅ Email is optional in the response model
     Email: Optional[str] = None
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
-    model_config = ConfigDict(extra='allow', populate_by_name=True)
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('TotalAmount', mode='before')
     @classmethod
     def convert_total_decimal_to_float(cls, v):
-        """Convert Decimal to float if needed."""
         if isinstance(v, Decimal):
             return float(v)
         return v
@@ -177,26 +178,19 @@ class BaseOrderModel(BaseModel):
     Contact_Person2: Optional[str] = Field(None, max_length=255)
     Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
-    # ✅ Email is now Optional — no required constraint, format validated only when provided
     Email: Optional[str] = Field(None, max_length=255)
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
-    model_config = ConfigDict(extra='allow', populate_by_name=True)
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('Email', mode='before')
     @classmethod
     def validate_optional_email(cls, v):
-        """
-        Email is optional.
-        - None / empty string  → stored as None (no error).
-        - Non-empty string     → must match the email pattern, otherwise raise.
-        """
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
             return None
-        # Only validate format when a real value is supplied
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(pattern, str(v)):
             raise ValueError('Please enter a valid email address (e.g., user@example.com)')
