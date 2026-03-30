@@ -32,20 +32,32 @@ def convert_product_for_storage(product: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert a product dict to DynamoDB storage format.
     Ensures all fields are properly typed and ProductCategory is included.
+    ✅ PlateRate is now explicitly included so it is persisted to DynamoDB.
     """
     logger.info(f"Converting product to storage format: {product}")
+
+    # ✅ Resolve PlateRate — accept float/int/Decimal/str; store as Decimal.
+    #    If absent or None, keep as None (will be filtered out below unless
+    #    the user explicitly provided 0, in which case Decimal("0") is stored).
+    raw_plate_rate = product.get("PlateRate")
+    plate_rate_decimal = None
+    if raw_plate_rate is not None:
+        try:
+            plate_rate_decimal = Decimal(str(raw_plate_rate))
+        except Exception:
+            plate_rate_decimal = None
 
     # Start with all fields that should be stored
     stored_product = {
         "ProductType": product.get("ProductType"),
-        "ProductCategory": product.get("ProductCategory"),  # FIX: Include ProductCategory
+        "ProductCategory": product.get("ProductCategory"),
         "ProductId": product.get("ProductId"),
         "ProductSize": product.get("ProductSize"),
         "BagMaterial": product.get("BagMaterial"),
         "Quantity": int(product.get("Quantity", 0)),
         "SheetGSM": int(product.get("SheetGSM", 0)),
         "SheetColor": product.get("SheetColor"),
-        "BorderGSM": int(product.get("BorderGSM", 0)),
+        "BorderGSM": int(product.get("BorderGSM", 0)) if product.get("BorderGSM") is not None else None,
         "BorderColor": product.get("BorderColor"),
         "HandleType": product.get("HandleType"),
         "HandleColor": product.get("HandleColor"),
@@ -56,15 +68,17 @@ def convert_product_for_storage(product: Dict[str, Any]) -> Dict[str, Any]:
         "Design": bool(product.get("Design", False)),
         "PlateBlockNumber": product.get("PlateBlockNumber"),
         "PlateAvailable": bool(product.get("PlateAvailable", False)),
+        # ✅ NEW: PlateRate stored as Decimal (None → omitted by cleanup below)
+        "PlateRate": plate_rate_decimal,
         "Rate": Decimal(str(product.get("Rate", 0))),
         "ProductAmount": Decimal(str(product.get("ProductAmount", 0))),
     }
 
-    # Remove None values to keep DynamoDB clean (optional custom fields)
-    # But keep ProductCategory even if None for consistency
+    # Remove None values to keep DynamoDB clean.
+    # ProductCategory and ProductId are kept even when None for schema consistency.
     cleaned_product = {
         k: v for k, v in stored_product.items()
-        if v is not None or k in ["ProductCategory", "ProductId"]  # Keep these even if None
+        if v is not None or k in ["ProductCategory", "ProductId"]
     }
 
     logger.info(f"Product after storage conversion: {cleaned_product}")

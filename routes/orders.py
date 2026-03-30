@@ -31,6 +31,7 @@ def build_products_for_storage(products) -> list:
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
     ✅ None values are excluded so DynamoDB never receives a null attribute
        (e.g. BorderGSM / BorderColor are omitted entirely for Machine-type products).
+    ✅ PlateRate is included when provided (even 0.0 is stored as Decimal).
     """
     ddb_products = []
     for idx, product in enumerate(products):
@@ -38,8 +39,14 @@ def build_products_for_storage(products) -> list:
 
         # Convert Pydantic model to dict, excluding None values
         product_dict = {k: v for k, v in product.model_dump().items() if v is not None}
+
+        # ✅ Special handling for PlateRate: include it even when 0.0
+        #    model_dump() excludes None but 0.0 passes through naturally.
+        #    However if the user explicitly sent 0, we want to store it.
+        #    The None-filter above already keeps 0.0, so no extra work needed.
         logger.info(f"Product {idx + 1} dict (None-filtered): {product_dict}")
         logger.info(f"Product {idx + 1} ProductCategory value: {product_dict.get('ProductCategory')}")
+        logger.info(f"Product {idx + 1} PlateRate value: {product_dict.get('PlateRate')}")
 
         converted_product = convert_product_for_storage(product_dict)
         logger.info(f"Product {idx + 1} after conversion: {converted_product}")
