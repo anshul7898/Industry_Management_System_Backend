@@ -32,17 +32,22 @@ class Product(BaseModel):
     PrintingType: str = Field(..., min_length=1, description="Type of printing")
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
     Color: Optional[str] = Field(None, description="Main color")
-    Design: bool = Field(False, description="Whether product has design")
+
+    # ── DesignType replaces the old boolean Design field ─────────
+    DesignType: Optional[str] = Field(None, description="Design type: 'Old' or 'New'")
+
     PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
 
-    # ✅ PlateAvailable completely removed — PlateType replaces it
+    # ── PlateType replaces the old boolean PlateAvailable field ──
     PlateType: Optional[str] = Field(None, description="Plate type: 'Old' or 'New'")
     PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
 
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
-    model_config = ConfigDict(extra='ignore', populate_by_name=True)  # ✅ 'ignore' drops unknown fields like PlateAvailable from old records
+    # extra='ignore' silently drops unknown fields (e.g. legacy Design / PlateAvailable)
+    # that may still be present in old DynamoDB records
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('ProductId', mode='before')
     @classmethod
@@ -108,6 +113,18 @@ class Product(BaseModel):
     @classmethod
     def coerce_plate_type(cls, v):
         """Normalise PlateType — only 'Old' and 'New' are valid; anything else → None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, str) and v.strip() in ("Old", "New"):
+            return v.strip()
+        return None
+
+    @field_validator('DesignType', mode='before')
+    @classmethod
+    def coerce_design_type(cls, v):
+        """Normalise DesignType — only 'Old' and 'New' are valid; anything else → None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
