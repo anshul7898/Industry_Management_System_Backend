@@ -36,6 +36,9 @@ class Product(BaseModel):
     # ── DesignType replaces the old boolean Design field ─────────
     DesignType: Optional[str] = Field(None, description="Design type: 'Old' or 'New'")
 
+    # ── DesignStyle: Same Front/Back or Different Front/Back ─────
+    DesignStyle: Optional[str] = Field(None, description="Design style: 'Same Front/Back' or 'Different Front/Back'")
+
     PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
 
     # ── PlateType replaces the old boolean PlateAvailable field ──
@@ -130,6 +133,18 @@ class Product(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return None
         if isinstance(v, str) and v.strip() in ("Old", "New"):
+            return v.strip()
+        return None
+
+    @field_validator('DesignStyle', mode='before')
+    @classmethod
+    def coerce_design_style(cls, v):
+        """Normalise DesignStyle — only 'Same Front/Back' and 'Different Front/Back' are valid; anything else → None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, str) and v.strip() in ("Same Front/Back", "Different Front/Back"):
             return v.strip()
         return None
 

@@ -30,9 +30,10 @@ def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
     ✅ None values are excluded so DynamoDB never receives a null attribute.
-    ✅ PlateRate  is stored as Decimal when provided.
-    ✅ PlateType  ("Old"/"New") is stored as a plain string — never coerced to Decimal.
-    ✅ DesignType ("Old"/"New") is stored as a plain string — never coerced to Decimal.
+    ✅ PlateRate    is stored as Decimal when provided.
+    ✅ PlateType    ("Old"/"New") is stored as a plain string — never coerced to Decimal.
+    ✅ DesignType   ("Old"/"New") is stored as a plain string — never coerced to Decimal.
+    ✅ DesignStyle  ("Same Front/Back"/"Different Front/Back") stored as plain string.
     ✅ Design (old bool) and PlateAvailable (old bool) are fully removed — legacy guards only.
     """
     ddb_products = []
@@ -43,22 +44,19 @@ def build_products_for_storage(products) -> list:
         raw = product.model_dump()
 
         # Step 2 — drop legacy boolean fields that no longer exist in the schema
-        #           (belt-and-suspenders guard for any old records that may still
-        #            carry these keys from before the migration)
         raw.pop("Design", None)
         raw.pop("PlateAvailable", None)
 
         # Step 3 — capture string-enum fields BEFORE the None-filter so they
         #           are never accidentally dropped
-        plate_type  = raw.get("PlateType")   # "Old", "New", or None
-        design_type = raw.get("DesignType")  # "Old", "New", or None
+        plate_type   = raw.get("PlateType")    # "Old", "New", or None
+        design_type  = raw.get("DesignType")   # "Old", "New", or None
+        design_style = raw.get("DesignStyle")  # "Same Front/Back", "Different Front/Back", or None
 
         # Step 4 — filter out None values (DynamoDB does not accept nulls)
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
         # Step 5 — convert known numeric fields to Decimal for DynamoDB
-        #           String fields (PlateType, DesignType, SheetColor, etc.)
-        #           are NEVER touched here
         for numeric_field in (
             "Rate", "ProductAmount", "PlateRate",
             "SheetGSM", "BorderGSM", "HandleGSM", "Quantity",
@@ -69,25 +67,32 @@ def build_products_for_storage(products) -> list:
                 except Exception:
                     pass
 
-        # Step 6a — explicitly set/clear PlateType so it is never lost or corrupted
+        # Step 6a — explicitly set/clear PlateType
         if plate_type in ("Old", "New"):
-            product_dict["PlateType"] = plate_type    # stored as DynamoDB String (S)
+            product_dict["PlateType"] = plate_type
         else:
-            product_dict.pop("PlateType", None)        # omit entirely if not set
+            product_dict.pop("PlateType", None)
 
-        # Step 6b — explicitly set/clear DesignType so it is never lost or corrupted
+        # Step 6b — explicitly set/clear DesignType
         if design_type in ("Old", "New"):
-            product_dict["DesignType"] = design_type  # stored as DynamoDB String (S)
+            product_dict["DesignType"] = design_type
         else:
-            product_dict.pop("DesignType", None)       # omit entirely if not set
+            product_dict.pop("DesignType", None)
+
+        # Step 6c — explicitly set/clear DesignStyle
+        if design_style in ("Same Front/Back", "Different Front/Back"):
+            product_dict["DesignStyle"] = design_style
+        else:
+            product_dict.pop("DesignStyle", None)
 
         logger.info(f"Product {idx + 1} final dict       : {product_dict}")
         logger.info(f"Product {idx + 1} PlateType        : {product_dict.get('PlateType')}")
         logger.info(f"Product {idx + 1} DesignType       : {product_dict.get('DesignType')}")
+        logger.info(f"Product {idx + 1} DesignStyle      : {product_dict.get('DesignStyle')}")
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
 
-        # Step 7 — run through DynamoDB utility (handles any remaining type conversions)
+        # Step 7 — run through DynamoDB utility
         converted_product = convert_product_for_storage(product_dict)
 
         # Step 8 — safety net: restore PlateType if convert_product_for_storage dropped it
@@ -107,6 +112,15 @@ def build_products_for_storage(products) -> list:
                     f"— restoring to '{design_type}'"
                 )
                 converted_product["DesignType"] = design_type
+
+        # Step 10 — safety net: restore DesignStyle if convert_product_for_storage dropped it
+        if design_style in ("Same Front/Back", "Different Front/Back"):
+            if converted_product.get("DesignStyle") != design_style:
+                logger.warning(
+                    f"⚠️ DesignStyle corrupted by convert_product_for_storage "
+                    f"— restoring to '{design_style}'"
+                )
+                converted_product["DesignStyle"] = design_style
 
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
