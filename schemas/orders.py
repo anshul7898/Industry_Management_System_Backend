@@ -34,8 +34,12 @@ class Product(BaseModel):
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
     Color: Optional[str] = Field(None, description="Main color")
     Design: bool = Field(False, description="Whether product has design")
-    PlateBlockNumber: Optional[str] = Field(None, description="Plate block number (Single/Double/Multi)")
+    PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
     PlateAvailable: bool = Field(False, description="Whether plate is available")
+
+    # ✅ NEW: PlateRate — optional, rate of the printing plate
+    PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
+
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
@@ -82,6 +86,22 @@ class Product(BaseModel):
         if isinstance(v, Decimal):
             return float(v)
         return v
+
+    # ✅ NEW validator: converts DynamoDB Decimal → float for PlateRate
+    @field_validator('PlateRate', mode='before')
+    @classmethod
+    def convert_plate_rate_to_float(cls, v):
+        """Convert Decimal to float; treat empty string as None; allow 0."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, Decimal):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
     @field_validator('PlateBlockNumber', mode='before')
     @classmethod
