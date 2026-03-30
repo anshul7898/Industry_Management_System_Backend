@@ -15,6 +15,7 @@ dynamodb = boto3.resource(
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
 )
 
+# ✅ UPDATED: Added 'box-bag' and 'leader-bag' entries
 SIZE_TABLE_MAP = {
     "stitching":    "Stitching_Size_Table",
     "d-cut":        "D_Cut_Size_Table",
@@ -24,6 +25,8 @@ SIZE_TABLE_MAP = {
     "side-gaget":   "Side_Gaget_Size_Table",
     "bottom-gaget": "Bottom_Gaget_Size_Table",
     "handle-bag":   "Handle_Bag_Size_Table",
+    "box-bag":      "Box_Bag_Size_Table",
+    "leader-bag":   "Leader_Bag_Size_Table",
 }
 
 CATEGORY_TO_SIZE_KEY = {
@@ -35,6 +38,8 @@ CATEGORY_TO_SIZE_KEY = {
     "Side Gaget Bag":         "side-gaget",
     "Bottom Gaget Bag":       "bottom-gaget",
     "Handle Bag":             "handle-bag",
+    "Box Bag":                "box-bag",
+    "Leader Bag":             "leader-bag",
 }
 
 
@@ -141,8 +146,8 @@ def add_size(category: str, body: AddSizeRequest):
         new_id = get_next_id(existing_items)
 
         table.put_item(Item={
-            "ID":   new_id,      # ✅ Number — matches partition key type N
-            "Size": size_value,  # ✅ Size string value
+            "ID":   new_id,       # ✅ Number — matches partition key type N
+            "Size": size_value,   # ✅ Size string value
         })
         logger.info(
             f"Added size '{size_value}' with ID={new_id} to {table_name}"
