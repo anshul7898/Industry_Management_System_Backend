@@ -29,6 +29,7 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
+    FixAmount is stored as a Decimal if present.
     """
     ddb_products = []
     for idx, product in enumerate(products):
@@ -43,6 +44,7 @@ def build_products_for_storage(products) -> list:
         design_type  = raw.get("DesignType")
         design_style = raw.get("DesignStyle")
         roll_size    = raw.get("RollSize")
+        fix_amount   = raw.get("FixAmount")  # ── NEW
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -55,6 +57,15 @@ def build_products_for_storage(products) -> list:
                     product_dict[numeric_field] = Decimal(str(product_dict[numeric_field]))
                 except Exception:
                     pass
+
+        # ── NEW: convert FixAmount to Decimal for DynamoDB storage ─────────��─
+        if fix_amount is not None:
+            try:
+                product_dict["FixAmount"] = Decimal(str(fix_amount))
+            except Exception:
+                product_dict.pop("FixAmount", None)
+        else:
+            product_dict.pop("FixAmount", None)
 
         if plate_type in ("Old", "New"):
             product_dict["PlateType"] = plate_type
@@ -83,6 +94,7 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} RollSize         : {product_dict.get('RollSize')}")
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
+        logger.info(f"Product {idx + 1} FixAmount        : {product_dict.get('FixAmount')}")  # ── NEW
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -106,6 +118,13 @@ def build_products_for_storage(products) -> list:
                 logger.warning(f"⚠️ RollSize corrupted — restoring to '{roll_size}'")
                 converted_product["RollSize"] = str(roll_size).strip()
 
+        # ── NEW: restore FixAmount if corrupted by convert_product_for_storage ─
+        if fix_amount is not None:
+            expected = Decimal(str(fix_amount))
+            if converted_product.get("FixAmount") != expected:
+                logger.warning(f"⚠️ FixAmount corrupted — restoring to '{fix_amount}'")
+                converted_product["FixAmount"] = expected
+
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
 
@@ -117,7 +136,11 @@ def build_products_for_storage(products) -> list:
 
 
 def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
-    """Build the DynamoDB item dict for an order."""
+    """
+    Build the DynamoDB item dict for an order.
+    TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product).
+    The frontend computes and sends the correct TotalAmount; we persist it as-is.
+    """
     item = {
         "OrderId": order_id,
         "AgentId": payload.AgentId,
@@ -149,7 +172,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     if payload.Destination is not None:
         item["Destination"] = payload.Destination
 
-    # ── NEW: persist Carting if provided ─────────────────────────
+    # ── Persist Carting if provided ───────────────────────────────
     if payload.Carting is not None:
         item["Carting"] = Decimal(str(payload.Carting))
 
