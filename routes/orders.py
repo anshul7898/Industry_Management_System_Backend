@@ -29,35 +29,23 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    ✅ None values are excluded so DynamoDB never receives a null attribute.
-    ✅ PlateRate    is stored as Decimal when provided.
-    ✅ PlateType    ("Old"/"New") is stored as a plain string.
-    ✅ DesignType   ("Old"/"New") is stored as a plain string.
-    ✅ DesignStyle  ("Same Front/Back"/"Different Front/Back") stored as plain string.
-    ✅ RollSize     is stored as a plain string when provided.
-    ✅ Design (old bool) and PlateAvailable (old bool) are fully removed.
     """
     ddb_products = []
     for idx, product in enumerate(products):
         logger.info(f"Processing product {idx + 1}")
 
-        # Step 1 — dump to plain dict
         raw = product.model_dump()
 
-        # Step 2 — drop legacy boolean fields
         raw.pop("Design", None)
         raw.pop("PlateAvailable", None)
 
-        # Step 3 — capture string-enum fields BEFORE the None-filter
         plate_type   = raw.get("PlateType")
         design_type  = raw.get("DesignType")
         design_style = raw.get("DesignStyle")
-        roll_size    = raw.get("RollSize")  # NEW
+        roll_size    = raw.get("RollSize")
 
-        # Step 4 — filter out None values
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
-        # Step 5 — convert known numeric fields to Decimal
         for numeric_field in (
             "Rate", "ProductAmount", "PlateRate",
             "SheetGSM", "BorderGSM", "HandleGSM", "Quantity",
@@ -68,25 +56,21 @@ def build_products_for_storage(products) -> list:
                 except Exception:
                     pass
 
-        # Step 6a — explicitly set/clear PlateType
         if plate_type in ("Old", "New"):
             product_dict["PlateType"] = plate_type
         else:
             product_dict.pop("PlateType", None)
 
-        # Step 6b — explicitly set/clear DesignType
         if design_type in ("Old", "New"):
             product_dict["DesignType"] = design_type
         else:
             product_dict.pop("DesignType", None)
 
-        # Step 6c — explicitly set/clear DesignStyle
         if design_style in ("Same Front/Back", "Different Front/Back"):
             product_dict["DesignStyle"] = design_style
         else:
             product_dict.pop("DesignStyle", None)
 
-        # Step 6d — explicitly set/clear RollSize (NEW)
         if roll_size and str(roll_size).strip():
             product_dict["RollSize"] = str(roll_size).strip()
         else:
@@ -100,28 +84,23 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
 
-        # Step 7 — run through DynamoDB utility
         converted_product = convert_product_for_storage(product_dict)
 
-        # Step 8 — safety net: restore PlateType
         if plate_type in ("Old", "New"):
             if converted_product.get("PlateType") != plate_type:
                 logger.warning(f"⚠️ PlateType corrupted — restoring to '{plate_type}'")
                 converted_product["PlateType"] = plate_type
 
-        # Step 9 — safety net: restore DesignType
         if design_type in ("Old", "New"):
             if converted_product.get("DesignType") != design_type:
                 logger.warning(f"⚠️ DesignType corrupted — restoring to '{design_type}'")
                 converted_product["DesignType"] = design_type
 
-        # Step 10 — safety net: restore DesignStyle
         if design_style in ("Same Front/Back", "Different Front/Back"):
             if converted_product.get("DesignStyle") != design_style:
                 logger.warning(f"⚠️ DesignStyle corrupted — restoring to '{design_style}'")
                 converted_product["DesignStyle"] = design_style
 
-        # Step 11 — safety net: restore RollSize (NEW)
         if roll_size and str(roll_size).strip():
             if converted_product.get("RollSize") != str(roll_size).strip():
                 logger.warning(f"⚠️ RollSize corrupted — restoring to '{roll_size}'")
@@ -169,6 +148,10 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         item["DispatchContactNumber"] = payload.DispatchContactNumber
     if payload.Destination is not None:
         item["Destination"] = payload.Destination
+
+    # ── NEW: persist Carting if provided ─────────────────────────
+    if payload.Carting is not None:
+        item["Carting"] = Decimal(str(payload.Carting))
 
     return item
 
