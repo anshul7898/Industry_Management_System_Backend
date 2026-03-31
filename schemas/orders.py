@@ -23,6 +23,9 @@ class Product(BaseModel):
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
 
+    # ── NEW: Roll Size ────────────────────────────────────────────
+    RollSize: Optional[str] = Field(None, description="Roll size (from Roll_Size_Table)")
+
     BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
     BorderColor: Optional[str] = Field(None, description="Color of the border (not required for Machine type)")
 
@@ -48,8 +51,6 @@ class Product(BaseModel):
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
-    # extra='ignore' silently drops unknown fields (e.g. legacy Design / PlateAvailable)
-    # that may still be present in old DynamoDB records
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('ProductId', mode='before')
@@ -83,6 +84,15 @@ class Product(BaseModel):
                 return v
         return v
 
+    @field_validator('RollSize', mode='before')
+    @classmethod
+    def coerce_roll_size(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return str(v).strip()
+
     @field_validator('Rate', 'ProductAmount', mode='before')
     @classmethod
     def convert_decimal_to_float(cls, v):
@@ -93,7 +103,6 @@ class Product(BaseModel):
     @field_validator('PlateRate', mode='before')
     @classmethod
     def convert_plate_rate_to_float(cls, v):
-        """Convert Decimal to float; treat empty string as None; allow 0."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -115,7 +124,6 @@ class Product(BaseModel):
     @field_validator('PlateType', mode='before')
     @classmethod
     def coerce_plate_type(cls, v):
-        """Normalise PlateType — only 'Old' and 'New' are valid; anything else → None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -127,7 +135,6 @@ class Product(BaseModel):
     @field_validator('DesignType', mode='before')
     @classmethod
     def coerce_design_type(cls, v):
-        """Normalise DesignType — only 'Old' and 'New' are valid; anything else → None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -139,7 +146,6 @@ class Product(BaseModel):
     @field_validator('DesignStyle', mode='before')
     @classmethod
     def coerce_design_style(cls, v):
-        """Normalise DesignStyle — only 'Same Front/Back' and 'Different Front/Back' are valid; anything else → None."""
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -185,7 +191,6 @@ class Order(BaseModel):
     Mobile2: Optional[int] = None
     Email: Optional[str] = None
 
-    # ── Dispatch Information ──────────────────────────────────────
     BookingName: Optional[str] = Field(None, description="Booking name for dispatch")
     TransportName: Optional[str] = Field(None, description="Transport/courier name")
     DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
@@ -219,11 +224,10 @@ class BaseOrderModel(BaseModel):
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
     Email: Optional[str] = Field(None, max_length=255)
 
-    # ── Dispatch Information ──────────────────────────────────────
-    BookingName: Optional[str] = Field(None, max_length=255, description="Booking name for dispatch")
-    TransportName: Optional[str] = Field(None, max_length=255, description="Transport/courier name")
-    DispatchContactNumber: Optional[str] = Field(None, max_length=20, description="Contact number for dispatch")
-    Destination: Optional[str] = Field(None, max_length=255, description="Dispatch destination")
+    BookingName: Optional[str] = Field(None, max_length=255)
+    TransportName: Optional[str] = Field(None, max_length=255)
+    DispatchContactNumber: Optional[str] = Field(None, max_length=20)
+    Destination: Optional[str] = Field(None, max_length=255)
 
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
@@ -245,7 +249,6 @@ class BaseOrderModel(BaseModel):
     @field_validator('DispatchContactNumber', mode='before')
     @classmethod
     def coerce_dispatch_contact_number(cls, v):
-        """Accept int or str; coerce to string; treat empty string as None."""
         if v is None:
             return None
         if isinstance(v, int):
@@ -256,10 +259,8 @@ class BaseOrderModel(BaseModel):
 
 
 class CreateOrder(BaseOrderModel):
-    """Model for creating a new order with multiple products"""
     pass
 
 
 class UpdateOrder(BaseOrderModel):
-    """Model for updating an existing order with multiple products"""
     pass
