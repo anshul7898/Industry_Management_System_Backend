@@ -57,6 +57,8 @@ def build_products_for_storage(products) -> list:
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
         # Step 5 — convert known numeric fields to Decimal for DynamoDB
+        #           String fields (PlateType, DesignType, DesignStyle, etc.)
+        #           are NEVER touched here
         for numeric_field in (
             "Rate", "ProductAmount", "PlateRate",
             "SheetGSM", "BorderGSM", "HandleGSM", "Quantity",
@@ -92,7 +94,7 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
 
-        # Step 7 — run through DynamoDB utility
+        # Step 7 — run through DynamoDB utility (handles any remaining type conversions)
         converted_product = convert_product_for_storage(product_dict)
 
         # Step 8 — safety net: restore PlateType if convert_product_for_storage dropped it
@@ -136,6 +138,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     """
     Build the DynamoDB item dict for an order.
     ✅ Optional top-level fields that are None are excluded.
+    ✅ Dispatch Information fields included when provided.
     """
     item = {
         "OrderId": order_id,
@@ -151,6 +154,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         "Products": ddb_products,
     }
 
+    # Optional contact fields
     if payload.Contact_Person2 is not None:
         item["Contact_Person2"] = payload.Contact_Person2
     if payload.Mobile1 is not None:
@@ -159,6 +163,16 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         item["Mobile2"] = payload.Mobile2
     if payload.Email is not None:
         item["Email"] = payload.Email
+
+    # ── Dispatch Information (optional) ──────────────────────────
+    if payload.BookingName is not None:
+        item["BookingName"] = payload.BookingName
+    if payload.TransportName is not None:
+        item["TransportName"] = payload.TransportName
+    if payload.DispatchContactNumber is not None:
+        item["DispatchContactNumber"] = payload.DispatchContactNumber
+    if payload.Destination is not None:
+        item["Destination"] = payload.Destination
 
     return item
 
