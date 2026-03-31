@@ -45,6 +45,9 @@ class Product(BaseModel):
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
+    # ── NEW: Fix Amount — product-level fixed charge ──────────────────────────
+    FixAmount: Optional[float] = Field(None, ge=0, description="Fixed amount charge for this product (optional)")
+
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('ProductId', mode='before')
@@ -97,6 +100,21 @@ class Product(BaseModel):
     @field_validator('PlateRate', mode='before')
     @classmethod
     def convert_plate_rate_to_float(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, Decimal):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    # ── NEW: FixAmount validator ──────────────────────────────────────────────
+    @field_validator('FixAmount', mode='before')
+    @classmethod
+    def convert_fix_amount_to_float(cls, v):
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -190,10 +208,12 @@ class Order(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
     Destination: Optional[str] = Field(None, description="Dispatch destination")
 
-    # ── NEW: Carting charges ──────────────────────────────────────
+    # ── Carting charges ───────────────────────────────────────────
     Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
 
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
+
+    # TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product)
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
@@ -205,7 +225,6 @@ class Order(BaseModel):
             return float(v)
         return v
 
-    # ── NEW: Carting validator ────────────────────────────────────
     @field_validator('Carting', mode='before')
     @classmethod
     def convert_carting_to_float(cls, v):
@@ -241,10 +260,12 @@ class BaseOrderModel(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, max_length=20)
     Destination: Optional[str] = Field(None, max_length=255)
 
-    # ── NEW: Carting charges ──────────────────────────────────────
+    # ── Carting charges ───────────────────────────────────────────
     Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
 
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
+
+    # TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product)
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
@@ -272,7 +293,6 @@ class BaseOrderModel(BaseModel):
             return None
         return str(v).strip()
 
-    # ── NEW: Carting validator ────────────────────────────────────
     @field_validator('Carting', mode='before')
     @classmethod
     def coerce_carting_to_float(cls, v):
