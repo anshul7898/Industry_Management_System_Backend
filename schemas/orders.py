@@ -23,7 +23,6 @@ class Product(BaseModel):
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
 
-    # ── NEW: Roll Size ────────────────────────────────────────────
     RollSize: Optional[str] = Field(None, description="Roll size (from Roll_Size_Table)")
 
     BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
@@ -36,15 +35,10 @@ class Product(BaseModel):
     PrintColor: str = Field(..., min_length=1, description="Color for printing")
     Color: Optional[str] = Field(None, description="Main color")
 
-    # ── DesignType replaces the old boolean Design field ─────────
     DesignType: Optional[str] = Field(None, description="Design type: 'Old' or 'New'")
-
-    # ── DesignStyle: Same Front/Back or Different Front/Back ─────
     DesignStyle: Optional[str] = Field(None, description="Design style: 'Same Front/Back' or 'Different Front/Back'")
 
     PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
-
-    # ── PlateType replaces the old boolean PlateAvailable field ──
     PlateType: Optional[str] = Field(None, description="Plate type: 'Old' or 'New'")
     PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
 
@@ -196,6 +190,9 @@ class Order(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
     Destination: Optional[str] = Field(None, description="Dispatch destination")
 
+    # ── NEW: Carting charges ──────────────────────────────────────
+    Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
+
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
@@ -207,6 +204,21 @@ class Order(BaseModel):
         if isinstance(v, Decimal):
             return float(v)
         return v
+
+    # ── NEW: Carting validator ────────────────────────────────────
+    @field_validator('Carting', mode='before')
+    @classmethod
+    def convert_carting_to_float(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, Decimal):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
 
 class BaseOrderModel(BaseModel):
@@ -228,6 +240,9 @@ class BaseOrderModel(BaseModel):
     TransportName: Optional[str] = Field(None, max_length=255)
     DispatchContactNumber: Optional[str] = Field(None, max_length=20)
     Destination: Optional[str] = Field(None, max_length=255)
+
+    # ── NEW: Carting charges ──────────────────────────────────────
+    Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
 
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
@@ -256,6 +271,21 @@ class BaseOrderModel(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return None
         return str(v).strip()
+
+    # ── NEW: Carting validator ────────────────────────────────────
+    @field_validator('Carting', mode='before')
+    @classmethod
+    def coerce_carting_to_float(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, Decimal):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
 
 class CreateOrder(BaseOrderModel):
