@@ -184,6 +184,13 @@ class Order(BaseModel):
     Mobile1: Optional[int] = None
     Mobile2: Optional[int] = None
     Email: Optional[str] = None
+
+    # ── Dispatch Information ──────────────────────────────────────
+    BookingName: Optional[str] = Field(None, description="Booking name for dispatch")
+    TransportName: Optional[str] = Field(None, description="Transport/courier name")
+    DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
+    Destination: Optional[str] = Field(None, description="Dispatch destination")
+
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
@@ -211,6 +218,13 @@ class BaseOrderModel(BaseModel):
     Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
     Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
     Email: Optional[str] = Field(None, max_length=255)
+
+    # ── Dispatch Information ──────────────────────────────────────
+    BookingName: Optional[str] = Field(None, max_length=255, description="Booking name for dispatch")
+    TransportName: Optional[str] = Field(None, max_length=255, description="Transport/courier name")
+    DispatchContactNumber: Optional[str] = Field(None, max_length=20, description="Contact number for dispatch")
+    Destination: Optional[str] = Field(None, max_length=255, description="Dispatch destination")
+
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
@@ -227,6 +241,18 @@ class BaseOrderModel(BaseModel):
         if not re.match(pattern, str(v)):
             raise ValueError('Please enter a valid email address (e.g., user@example.com)')
         return v
+
+    @field_validator('DispatchContactNumber', mode='before')
+    @classmethod
+    def coerce_dispatch_contact_number(cls, v):
+        """Accept int or str; coerce to string; treat empty string as None."""
+        if v is None:
+            return None
+        if isinstance(v, int):
+            return str(v)
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return str(v).strip()
 
 
 class CreateOrder(BaseOrderModel):
