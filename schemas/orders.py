@@ -52,6 +52,9 @@ class Product(BaseModel):
 
     FixAmount: Optional[float] = Field(None, ge=0, description="Fixed amount charge for this product (optional)")
 
+    # ── NEW: JobWorkRate — only applicable for KG quantity type ─────────────────
+    JobWorkRate: Optional[float] = Field(None, ge=0, description="Job work rate charge for KG quantity type (optional)")
+
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('ProductId', mode='before')
@@ -130,6 +133,21 @@ class Product(BaseModel):
     @field_validator('FixAmount', mode='before')
     @classmethod
     def convert_fix_amount_to_float(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, Decimal):
+            return float(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    # ── NEW: JobWorkRate validator ──────────────────────────────────────────────
+    @field_validator('JobWorkRate', mode='before')
+    @classmethod
+    def convert_job_work_rate_to_float(cls, v):
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":

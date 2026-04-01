@@ -29,7 +29,7 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    FixAmount and QuantityType are stored if present.
+    FixAmount, QuantityType, and JobWorkRate are stored if present.
     """
     ddb_products = []
     for idx, product in enumerate(products):
@@ -45,7 +45,8 @@ def build_products_for_storage(products) -> list:
         design_style  = raw.get("DesignStyle")
         roll_size     = raw.get("RollSize")
         fix_amount    = raw.get("FixAmount")
-        quantity_type = raw.get("QuantityType")  # ── NEW ──
+        quantity_type = raw.get("QuantityType")
+        job_work_rate = raw.get("JobWorkRate")  # ── NEW ──
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -68,7 +69,16 @@ def build_products_for_storage(products) -> list:
         else:
             product_dict.pop("FixAmount", None)
 
-        # ── NEW: persist QuantityType as a plain string ──────────────────────
+        # ── NEW: Convert JobWorkRate to Decimal for DynamoDB storage ────────────
+        if job_work_rate is not None:
+            try:
+                product_dict["JobWorkRate"] = Decimal(str(job_work_rate))
+            except Exception:
+                product_dict.pop("JobWorkRate", None)
+        else:
+            product_dict.pop("JobWorkRate", None)
+
+        # Persist QuantityType as a plain string
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
             product_dict["QuantityType"] = str(quantity_type).strip()
         else:
@@ -102,7 +112,8 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
         logger.info(f"Product {idx + 1} FixAmount        : {product_dict.get('FixAmount')}")
-        logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")  # ── NEW ──
+        logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")
+        logger.info(f"Product {idx + 1} JobWorkRate      : {product_dict.get('JobWorkRate')}")  # ── NEW ──
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -133,7 +144,14 @@ def build_products_for_storage(products) -> list:
                 logger.warning(f"⚠️ FixAmount corrupted — restoring to '{fix_amount}'")
                 converted_product["FixAmount"] = expected
 
-        # ── NEW: restore QuantityType if corrupted by convert_product_for_storage
+        # ── NEW: Restore JobWorkRate if corrupted by convert_product_for_storage
+        if job_work_rate is not None:
+            expected_jwr = Decimal(str(job_work_rate))
+            if converted_product.get("JobWorkRate") != expected_jwr:
+                logger.warning(f"⚠️ JobWorkRate corrupted — restoring to '{job_work_rate}'")
+                converted_product["JobWorkRate"] = expected_jwr
+
+        # Restore QuantityType if corrupted by convert_product_for_storage
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
             expected_qt = str(quantity_type).strip()
             if converted_product.get("QuantityType") != expected_qt:
@@ -153,7 +171,7 @@ def build_products_for_storage(products) -> list:
 def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     """
     Build the DynamoDB item dict for an order.
-    TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product).
+    TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product) + sum(JobWorkRates for KG products).
     The frontend computes and sends the correct TotalAmount; we persist it as-is.
     """
     item = {
