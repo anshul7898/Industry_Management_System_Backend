@@ -19,7 +19,7 @@ class Product(BaseModel):
     BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
     Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
 
-    # ── NEW: QuantityType — 'KG' or 'Pieces' ─────────────────────────────────
+    # ── QuantityType — 'KG' or 'Pieces' ──────────────────────────────────────
     QuantityType: Optional[str] = Field(
         None,
         description="Unit of quantity measurement: 'KG' or 'Pieces'"
@@ -48,12 +48,15 @@ class Product(BaseModel):
     PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
 
     Rate: float = Field(..., gt=0, description="Rate must be positive")
-    ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
+    ProductAmount: float = Field(..., ge=0, description="Product amount (calculated with GST)")
 
     FixAmount: Optional[float] = Field(None, ge=0, description="Fixed amount charge for this product (optional)")
 
-    # ── NEW: JobWorkRate — only applicable for KG quantity type ─────────────────
+    # JobWorkRate — only applicable for KG quantity type ──────────────────────
     JobWorkRate: Optional[float] = Field(None, ge=0, description="Job work rate charge for KG quantity type (optional)")
+
+    # ── NEW: GST — percentage applied on (Quantity × Rate), one of 0, 5, 18 ──
+    GST: Optional[float] = Field(0, ge=0, description="GST percentage on (Quantity × Rate): 0, 5, or 18")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -97,7 +100,7 @@ class Product(BaseModel):
             return None
         return str(v).strip()
 
-    # ── NEW: QuantityType validator ───────────────────────────────────────────
+    # QuantityType validator ───────────────────────────────────────────────────
     @field_validator('QuantityType', mode='before')
     @classmethod
     def coerce_quantity_type(cls, v):
@@ -144,7 +147,7 @@ class Product(BaseModel):
         except (TypeError, ValueError):
             return None
 
-    # ── NEW: JobWorkRate validator ──────────────────────────────────────────────
+    # JobWorkRate validator ────────────────────────────────────────────────────
     @field_validator('JobWorkRate', mode='before')
     @classmethod
     def convert_job_work_rate_to_float(cls, v):
@@ -158,6 +161,26 @@ class Product(BaseModel):
             return float(v)
         except (TypeError, ValueError):
             return None
+
+    # ── NEW: GST validator ────────────────────────────────────────────────────
+    @field_validator('GST', mode='before')
+    @classmethod
+    def convert_gst_to_float(cls, v):
+        if v is None:
+            return 0.0
+        if isinstance(v, str) and v.strip() == "":
+            return 0.0
+        if isinstance(v, Decimal):
+            val = float(v)
+        else:
+            try:
+                val = float(v)
+            except (TypeError, ValueError):
+                return 0.0
+        # Only allow 0, 5, or 18
+        if val not in (0.0, 5.0, 18.0):
+            return 0.0
+        return val
 
     @field_validator('PlateBlockNumber', mode='before')
     @classmethod

@@ -29,7 +29,13 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    FixAmount, QuantityType, and JobWorkRate are stored if present.
+    FixAmount, QuantityType, JobWorkRate, and GST are stored if present.
+
+    ProductAmount stored here is the final value already computed by the
+    frontend:
+      - Pieces: (Qty × Rate) + GST_amount + PlateRate + FixAmount
+      - KG:     (Qty × Rate) + GST_amount + JobWorkRate + PlateRate + FixAmount
+    where GST_amount = (Qty × Rate) × (GST / 100)
     """
     ddb_products = []
     for idx, product in enumerate(products):
@@ -46,7 +52,8 @@ def build_products_for_storage(products) -> list:
         roll_size     = raw.get("RollSize")
         fix_amount    = raw.get("FixAmount")
         quantity_type = raw.get("QuantityType")
-        job_work_rate = raw.get("JobWorkRate")  # ── NEW ──
+        job_work_rate = raw.get("JobWorkRate")
+        gst           = raw.get("GST")          # ── NEW ──
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -69,7 +76,7 @@ def build_products_for_storage(products) -> list:
         else:
             product_dict.pop("FixAmount", None)
 
-        # ── NEW: Convert JobWorkRate to Decimal for DynamoDB storage ────────────
+        # Convert JobWorkRate to Decimal for DynamoDB storage
         if job_work_rate is not None:
             try:
                 product_dict["JobWorkRate"] = Decimal(str(job_work_rate))
@@ -77,6 +84,16 @@ def build_products_for_storage(products) -> list:
                 product_dict.pop("JobWorkRate", None)
         else:
             product_dict.pop("JobWorkRate", None)
+
+        # ── NEW: Convert GST to Decimal for DynamoDB storage ─────────────────
+        # GST is always stored even when 0, so the value is explicit on read-back.
+        if gst is not None:
+            try:
+                product_dict["GST"] = Decimal(str(gst))
+            except Exception:
+                product_dict["GST"] = Decimal("0")
+        else:
+            product_dict["GST"] = Decimal("0")
 
         # Persist QuantityType as a plain string
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
@@ -113,7 +130,8 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
         logger.info(f"Product {idx + 1} FixAmount        : {product_dict.get('FixAmount')}")
         logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")
-        logger.info(f"Product {idx + 1} JobWorkRate      : {product_dict.get('JobWorkRate')}")  # ── NEW ──
+        logger.info(f"Product {idx + 1} JobWorkRate      : {product_dict.get('JobWorkRate')}")
+        logger.info(f"Product {idx + 1} GST              : {product_dict.get('GST')}")  # ── NEW ──
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -144,12 +162,18 @@ def build_products_for_storage(products) -> list:
                 logger.warning(f"⚠️ FixAmount corrupted — restoring to '{fix_amount}'")
                 converted_product["FixAmount"] = expected
 
-        # ── NEW: Restore JobWorkRate if corrupted by convert_product_for_storage
+        # Restore JobWorkRate if corrupted by convert_product_for_storage
         if job_work_rate is not None:
             expected_jwr = Decimal(str(job_work_rate))
             if converted_product.get("JobWorkRate") != expected_jwr:
                 logger.warning(f"⚠️ JobWorkRate corrupted — restoring to '{job_work_rate}'")
                 converted_product["JobWorkRate"] = expected_jwr
+
+        # ── NEW: Restore GST if corrupted by convert_product_for_storage ─────
+        expected_gst = Decimal(str(gst)) if gst is not None else Decimal("0")
+        if converted_product.get("GST") != expected_gst:
+            logger.warning(f"⚠️ GST corrupted — restoring to '{expected_gst}'")
+            converted_product["GST"] = expected_gst
 
         # Restore QuantityType if corrupted by convert_product_for_storage
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
@@ -171,8 +195,9 @@ def build_products_for_storage(products) -> list:
 def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     """
     Build the DynamoDB item dict for an order.
-    TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product) + sum(JobWorkRates for KG products).
-    The frontend computes and sends the correct TotalAmount; we persist it as-is.
+    TotalAmount = sum(ProductAmounts) + Carting.
+    ProductAmount for each product already contains the GST component as
+    computed by the frontend. We persist TotalAmount as-is.
     """
     item = {
         "OrderId": order_id,
