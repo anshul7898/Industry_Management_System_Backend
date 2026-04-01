@@ -13,13 +13,18 @@ class Product(BaseModel):
         description="Product category (only for Machine type products)"
     )
 
-    ProductId: Optional[int] = Field(
-        None, description="Product ID (optional for now)"
-    )
+    ProductId: Optional[int] = Field(None, description="Product ID (optional for now)")
 
     ProductSize: Union[int, str] = Field(..., description="Product size (integer for Stitching, string for Machine)")
     BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
     Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
+
+    # ── NEW: QuantityType — 'KG' or 'Pieces' ─────────────────────────────────
+    QuantityType: Optional[str] = Field(
+        None,
+        description="Unit of quantity measurement: 'KG' or 'Pieces'"
+    )
+
     SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
     SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
 
@@ -45,7 +50,6 @@ class Product(BaseModel):
     Rate: float = Field(..., gt=0, description="Rate must be positive")
     ProductAmount: float = Field(..., ge=0, description="Product amount (Rate × Quantity)")
 
-    # ── NEW: Fix Amount — product-level fixed charge ──────────────────────────
     FixAmount: Optional[float] = Field(None, ge=0, description="Fixed amount charge for this product (optional)")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
@@ -90,6 +94,18 @@ class Product(BaseModel):
             return None
         return str(v).strip()
 
+    # ── NEW: QuantityType validator ───────────────────────────────────────────
+    @field_validator('QuantityType', mode='before')
+    @classmethod
+    def coerce_quantity_type(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, str) and v.strip() in ("KG", "Pieces"):
+            return v.strip()
+        return None
+
     @field_validator('Rate', 'ProductAmount', mode='before')
     @classmethod
     def convert_decimal_to_float(cls, v):
@@ -111,7 +127,6 @@ class Product(BaseModel):
         except (TypeError, ValueError):
             return None
 
-    # ── NEW: FixAmount validator ──────────────────────────────────────────────
     @field_validator('FixAmount', mode='before')
     @classmethod
     def convert_fix_amount_to_float(cls, v):
@@ -208,12 +223,10 @@ class Order(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
     Destination: Optional[str] = Field(None, description="Dispatch destination")
 
-    # ── Carting charges ───────────────────────────────────────────
     Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
 
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
 
-    # TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product)
     TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
@@ -260,12 +273,10 @@ class BaseOrderModel(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, max_length=20)
     Destination: Optional[str] = Field(None, max_length=255)
 
-    # ── Carting charges ───────────────────────────────────────────
     Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
 
     Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
 
-    # TotalAmount = sum(ProductAmounts) + Carting + sum(FixAmounts per product)
     TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)

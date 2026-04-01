@@ -29,7 +29,7 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    FixAmount is stored as a Decimal if present.
+    FixAmount and QuantityType are stored if present.
     """
     ddb_products = []
     for idx, product in enumerate(products):
@@ -40,11 +40,12 @@ def build_products_for_storage(products) -> list:
         raw.pop("Design", None)
         raw.pop("PlateAvailable", None)
 
-        plate_type   = raw.get("PlateType")
-        design_type  = raw.get("DesignType")
-        design_style = raw.get("DesignStyle")
-        roll_size    = raw.get("RollSize")
-        fix_amount   = raw.get("FixAmount")  # ── NEW
+        plate_type    = raw.get("PlateType")
+        design_type   = raw.get("DesignType")
+        design_style  = raw.get("DesignStyle")
+        roll_size     = raw.get("RollSize")
+        fix_amount    = raw.get("FixAmount")
+        quantity_type = raw.get("QuantityType")  # ── NEW ──
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -58,7 +59,7 @@ def build_products_for_storage(products) -> list:
                 except Exception:
                     pass
 
-        # ── NEW: convert FixAmount to Decimal for DynamoDB storage ─────────��─
+        # Convert FixAmount to Decimal for DynamoDB storage
         if fix_amount is not None:
             try:
                 product_dict["FixAmount"] = Decimal(str(fix_amount))
@@ -66,6 +67,12 @@ def build_products_for_storage(products) -> list:
                 product_dict.pop("FixAmount", None)
         else:
             product_dict.pop("FixAmount", None)
+
+        # ── NEW: persist QuantityType as a plain string ──────────────────────
+        if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
+            product_dict["QuantityType"] = str(quantity_type).strip()
+        else:
+            product_dict.pop("QuantityType", None)
 
         if plate_type in ("Old", "New"):
             product_dict["PlateType"] = plate_type
@@ -94,7 +101,8 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} RollSize         : {product_dict.get('RollSize')}")
         logger.info(f"Product {idx + 1} PlateRate        : {product_dict.get('PlateRate')}")
         logger.info(f"Product {idx + 1} ProductCategory  : {product_dict.get('ProductCategory')}")
-        logger.info(f"Product {idx + 1} FixAmount        : {product_dict.get('FixAmount')}")  # ── NEW
+        logger.info(f"Product {idx + 1} FixAmount        : {product_dict.get('FixAmount')}")
+        logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")  # ── NEW ──
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -118,12 +126,19 @@ def build_products_for_storage(products) -> list:
                 logger.warning(f"⚠️ RollSize corrupted — restoring to '{roll_size}'")
                 converted_product["RollSize"] = str(roll_size).strip()
 
-        # ── NEW: restore FixAmount if corrupted by convert_product_for_storage ─
+        # Restore FixAmount if corrupted by convert_product_for_storage
         if fix_amount is not None:
             expected = Decimal(str(fix_amount))
             if converted_product.get("FixAmount") != expected:
                 logger.warning(f"⚠️ FixAmount corrupted — restoring to '{fix_amount}'")
                 converted_product["FixAmount"] = expected
+
+        # ── NEW: restore QuantityType if corrupted by convert_product_for_storage
+        if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
+            expected_qt = str(quantity_type).strip()
+            if converted_product.get("QuantityType") != expected_qt:
+                logger.warning(f"⚠️ QuantityType corrupted — restoring to '{expected_qt}'")
+                converted_product["QuantityType"] = expected_qt
 
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
@@ -172,7 +187,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     if payload.Destination is not None:
         item["Destination"] = payload.Destination
 
-    # ── Persist Carting if provided ───────────────────────────────
+    # Persist Carting if provided
     if payload.Carting is not None:
         item["Carting"] = Decimal(str(payload.Carting))
 
