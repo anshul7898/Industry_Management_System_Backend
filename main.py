@@ -1,6 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
 
 from config.settings import APP_NAME, APP_VERSION, CORS_ORIGINS
 from routes import orders, accounts, agents, party, products, sizes, roll_sizes
@@ -19,7 +20,9 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=[
+        "https://main.diukjwr9s4a1a.amplifyapp.com"
+    ], # fallback for safety
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,13 +40,15 @@ app.include_router(roll_sizes.router,      prefix="/api", tags=["Roll Sizes"])
 
 @app.get("/health", tags=["Health"])
 def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "application": APP_NAME, "version": APP_VERSION}
+    return {
+        "status": "healthy",
+        "application": APP_NAME,
+        "version": APP_VERSION
+    }
 
 
 @app.get("/", tags=["Root"])
 def root():
-    """Root endpoint"""
     return {
         "message": f"Welcome to {APP_NAME}",
         "version": APP_VERSION,
@@ -51,6 +56,11 @@ def root():
     }
 
 
+# ✅ IMPORTANT: Lambda handler (REQUIRED)
+handler = Mangum(app)
+
+
+# Optional: local development only
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
