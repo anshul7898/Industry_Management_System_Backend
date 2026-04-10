@@ -28,6 +28,25 @@ def convert_items_to_python(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return [convert_item_to_python(item) for item in items]
 
 
+def is_item_deleted(item: Dict[str, Any]) -> bool:
+    """Return True if the DynamoDB item is marked deleted."""
+    if not isinstance(item, dict):
+        return False
+    deleted = item.get("deleted", False)
+    if isinstance(deleted, bool):
+        return deleted
+    if isinstance(deleted, str):
+        return deleted.strip().lower() == "true"
+    if isinstance(deleted, (int, float)):
+        return bool(deleted)
+    return False
+
+
+def filter_deleted_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return only items not marked as deleted."""
+    return [item for item in items if not is_item_deleted(item)]
+
+
 def convert_product_for_storage(product: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert a product dict to DynamoDB storage format.

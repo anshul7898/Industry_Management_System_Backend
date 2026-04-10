@@ -11,6 +11,8 @@ from utils.dynamodb_utils import (
     convert_items_to_python,
     convert_item_to_python,
     convert_product_for_storage,
+    filter_deleted_items,
+    is_item_deleted,
 )
 from db.dynamodb import orders_table
 
@@ -211,6 +213,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         "Contact_Person1": payload.Contact_Person1,
         "TotalAmount": Decimal(str(payload.TotalAmount)),
         "Products": ddb_products,
+        "deleted": False,
     }
 
     if payload.Contact_Person2 is not None:
@@ -243,7 +246,7 @@ def list_orders():
     try:
         logger.info("📋 Fetching all orders from DynamoDB")
         response = orders_table.scan()
-        items = response.get("Items", [])
+        items = filter_deleted_items(response.get("Items", []))
         converted_items = convert_items_to_python(items)
         logger.info(f"✓ Successfully retrieved {len(converted_items)} orders")
         return converted_items
@@ -262,7 +265,7 @@ def get_order(order_id: int):
     try:
         response = orders_table.get_item(Key={"OrderId": order_id})
         order = response.get("Item")
-        if not order:
+        if not order or is_item_deleted(order):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
         return convert_item_to_python(order)
     except HTTPException:
@@ -302,10 +305,11 @@ def update_order(order_id: int, payload: UpdateOrder):
         if payload.TotalAmount is None or payload.TotalAmount < 0:
             raise ValueError("TotalAmount must be a valid non-negative number")
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
         ddb_products = build_products_for_storage(payload.Products)
         item = build_order_item(order_id, payload, ddb_products)
+        item["deleted"] = existing.get("deleted", False)
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} updated with {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
@@ -323,10 +327,14 @@ def delete_order(order_id: int):
     """Delete an order from DynamoDB."""
     try:
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
-        orders_table.delete_item(Key={"OrderId": order_id})
-        logger.info(f"✓ Order {order_id} deleted")
+        orders_table.update_item(
+            Key={"OrderId": order_id},
+            UpdateExpression="SET deleted = :deleted",
+            ExpressionAttributeValues={":deleted": True},
+        )
+        logger.info(f"✓ Order {order_id} soft deleted")
         return {"success": True, "orderId": order_id, "message": f"Order {order_id} deleted successfully"}
     except HTTPException:
         raise

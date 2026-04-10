@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from schemas.agents import Agent, AgentLightweight, CreateAgent, UpdateAgent
 from utils.helpers import aws_error_detail, normalize_agent_item, get_next_agent_id
+from utils.dynamodb_utils import filter_deleted_items, is_item_deleted
 from db.dynamodb import agents_table
 
 logger = logging.getLogger("uvicorn.error")
@@ -26,7 +27,7 @@ def format_validation_errors(errors: list) -> str:
 @router.get("/agents", response_model=List[Agent])
 def list_agents():
     try:
-        items = agents_table.scan().get("Items", [])
+        items = filter_deleted_items(agents_table.scan().get("Items", []))
         return [normalize_agent_item(x) for x in items]
     except ClientError as e:
         raise HTTPException(status_code=500, detail=aws_error_detail(e))
@@ -41,7 +42,7 @@ def list_agents_lightweight():
     Returns a lightweight list of all agents: just AgentId and Name.
     """
     try:
-        items = agents_table.scan().get("Items", [])
+        items = filter_deleted_items(agents_table.scan().get("Items", []))
         result = []
         for item in items:
             agent_id = int(item["AgentId"]) if isinstance(item["AgentId"], Decimal) else item["AgentId"]
@@ -63,7 +64,7 @@ def get_agent(agent_id: int):
 
         resp = agents_table.get_item(Key={"AgentId": agent_id})
         item = resp.get("Item")
-        if not item:
+        if not item or is_item_deleted(item):
             raise HTTPException(status_code=404, detail="Agent not found")
         return normalize_agent_item(item)
     except ClientError as e:
@@ -87,6 +88,7 @@ def create_agent(payload: CreateAgent):
             "Mobile": payload.mobile,
             "Aadhar_Details": payload.aadhar_Details,
             "Address": payload.address,
+            "deleted": False,
         }
 
         agents_table.put_item(Item=item)
@@ -116,7 +118,7 @@ def update_agent(agent_id: int, payload: UpdateAgent):
 
         # Check if agent exists
         existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Agent not found")
 
         # Validation is automatically done by Pydantic
@@ -128,6 +130,7 @@ def update_agent(agent_id: int, payload: UpdateAgent):
             "Address": payload.address,
         }
 
+        item["deleted"] = existing.get("deleted", False)
         agents_table.put_item(Item=item)
 
         logger.info(f"Agent {agent_id} updated successfully")
@@ -157,12 +160,16 @@ def delete_agent(agent_id: int):
             raise HTTPException(status_code=400, detail="Agent ID must be a positive integer")
 
         existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        agents_table.delete_item(Key={"AgentId": agent_id})
+        agents_table.update_item(
+            Key={"AgentId": agent_id},
+            UpdateExpression="SET deleted = :deleted",
+            ExpressionAttributeValues={":deleted": True},
+        )
 
-        logger.info(f"Agent {agent_id} deleted successfully")
+        logger.info(f"Agent {agent_id} soft deleted successfully")
         return {"deleted": True}
 
     except HTTPException:

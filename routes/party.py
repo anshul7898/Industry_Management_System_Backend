@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from schemas.party import Party, CreateParty, UpdateParty
 from utils.helpers import aws_error_detail, normalize_party_item, get_next_party_id
+from utils.dynamodb_utils import filter_deleted_items, is_item_deleted
 from db.dynamodb import party_table
 
 logger = logging.getLogger("uvicorn.error")
@@ -25,7 +26,7 @@ def format_validation_errors(errors: list) -> str:
 @router.get("/party", response_model=List[Party])
 def list_parties():
     try:
-        items = party_table.scan().get("Items", [])
+        items = filter_deleted_items(party_table.scan().get("Items", []))
         return [normalize_party_item(x) for x in items]
     except ClientError as e:
         raise HTTPException(status_code=500, detail=aws_error_detail(e))
@@ -49,7 +50,7 @@ def get_party_by_name(party_name: str):
 
         # Case-insensitive match on PartyName
         match = next(
-            (item for item in items
+            (item for item in filter_deleted_items(items)
              if str(item.get("PartyName", "")).lower() == party_name.lower()),
             None,
         )
@@ -82,7 +83,7 @@ def get_party(party_id: int):
             raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
 
         item = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-        if not item:
+        if not item or is_item_deleted(item):
             raise HTTPException(status_code=404, detail="Party not found")
         return normalize_party_item(item)
     except ClientError as e:
@@ -114,6 +115,7 @@ def create_party(payload: CreateParty):
             "Pincode": payload.pincode,
             "AgentId": payload.agentId,
             "OrderId": payload.orderId,
+            "deleted": False,
         }
 
         party_table.put_item(Item=item)
@@ -142,7 +144,7 @@ def update_party(party_id: int, payload: UpdateParty):
             raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
 
         existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Party not found")
 
         item = {
@@ -162,6 +164,7 @@ def update_party(party_id: int, payload: UpdateParty):
             "OrderId": payload.orderId,
         }
 
+        item["deleted"] = existing.get("deleted", False)
         party_table.put_item(Item=item)
 
         logger.info(f"Party {party_id} updated successfully")
@@ -191,12 +194,16 @@ def delete_party(party_id: int):
             raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
 
         existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
-        if not existing:
+        if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Party not found")
 
-        party_table.delete_item(Key={"PartyId": party_id})
+        party_table.update_item(
+            Key={"PartyId": party_id},
+            UpdateExpression="SET deleted = :deleted",
+            ExpressionAttributeValues={":deleted": True},
+        )
 
-        logger.info(f"Party {party_id} deleted successfully")
+        logger.info(f"Party {party_id} soft deleted successfully")
         return {"deleted": True}
 
     except HTTPException:
