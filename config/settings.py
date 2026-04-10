@@ -1,9 +1,16 @@
 import os
-from dotenv import load_dotenv
 from typing import List
 
-# Load .env file FIRST before reading any env vars
-load_dotenv()
+# Load .env file FIRST before reading any env vars (optional for Lambda)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # In Lambda, dotenv may not be available; env vars come from Lambda config
+    pass
+except Exception as e:
+    # If .env doesn't exist or can't be loaded, continue anyway
+    pass
 
 # AWS Configuration
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")

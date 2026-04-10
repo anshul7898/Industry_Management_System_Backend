@@ -18,7 +18,7 @@ class AgentLightweight(BaseModel):
 class CreateAgent(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Agent name")
     mobile: str = Field(..., description="10-digit mobile number")
-    aadhar_Details: str = Field(..., description="12-digit Aadhar number")
+    aadhar_Details: Optional[str] = Field(None, description="12-digit Aadhar number (optional)")
     address: str = Field(..., min_length=1, max_length=500, description="Agent address")
 
     @field_validator('name')
@@ -61,9 +61,9 @@ class CreateAgent(BaseModel):
     @field_validator('aadhar_Details')
     @classmethod
     def validate_aadhar(cls, v):
-        """Validate Aadhar: must be exactly 12 digits"""
-        if not v:
-            raise ValueError("Aadhar number is required")
+        """Validate Aadhar: must be exactly 12 digits (if provided)"""
+        if v is None:
+            return None
 
         # Remove any spaces or hyphens
         cleaned = ''.join(c for c in v if c.isdigit())
@@ -95,7 +95,7 @@ class CreateAgent(BaseModel):
 class UpdateAgent(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Agent name")
     mobile: str = Field(..., description="10-digit mobile number")
-    aadhar_Details: str = Field(..., description="12-digit Aadhar number")
+    aadhar_Details: Optional[str] = Field(None, description="12-digit Aadhar number (optional)")
     address: str = Field(..., min_length=1, max_length=500, description="Agent address")
 
     @field_validator('name')
@@ -136,9 +136,9 @@ class UpdateAgent(BaseModel):
     @field_validator('aadhar_Details')
     @classmethod
     def validate_aadhar(cls, v):
-        """Validate Aadhar: must be exactly 12 digits"""
-        if not v:
-            raise ValueError("Aadhar number is required")
+        """Validate Aadhar: must be exactly 12 digits (if provided)"""
+        if v is None:
+            return None
 
         cleaned = ''.join(c for c in v if c.isdigit())
 
