@@ -8,8 +8,9 @@ mangum>=0.17.0
 boto3>=1.34.0
 botocore>=1.34.0
 
-# Data validation (Pydantic v2 — required for ConfigDict, field_validator)
-pydantic>=2.6.0,<3.0.0
+# Data validation (Pydantic v2 — pinned to versions that work in Lambda with Linux binaries)
+pydantic==2.6.4
+pydantic-core==2.16.3
 
 # Environment variable loading
 python-dotenv>=1.0.0
