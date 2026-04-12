@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 from decimal import Decimal
 from fastapi import APIRouter, HTTPException
 from botocore.exceptions import ClientError
@@ -20,10 +20,13 @@ logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 
-def generate_order_id(agent_id: int) -> int:
+def generate_order_id(agent_id: Optional[int]) -> int:
     """Generate a unique numeric OrderId"""
     timestamp = int(time.time())
-    order_id = int(str(agent_id) + str(timestamp)[-6:])
+    if agent_id is None:
+        order_id = timestamp
+    else:
+        order_id = int(str(agent_id) + str(timestamp)[-6:])
     logger.info(f"Generated OrderId: {order_id} from AgentId: {agent_id}")
     return order_id
 
@@ -203,19 +206,27 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     """
     item = {
         "OrderId": order_id,
-        "AgentId": payload.AgentId,
-        "Party_Name": payload.Party_Name,
-        "AliasOrCompanyName": payload.AliasOrCompanyName,
-        "Address": payload.Address,
-        "City": payload.City,
-        "State": payload.State,
-        "Pincode": payload.Pincode,
-        "Contact_Person1": payload.Contact_Person1,
-        "TotalAmount": Decimal(str(payload.TotalAmount)),
-        "Products": ddb_products,
         "deleted": False,
+        "Products": ddb_products,
+        "TotalAmount": Decimal(str(payload.TotalAmount)) if payload.TotalAmount is not None else Decimal("0"),
     }
 
+    if payload.AgentId is not None:
+        item["AgentId"] = payload.AgentId
+    if payload.Party_Name is not None:
+        item["Party_Name"] = payload.Party_Name
+    if payload.AliasOrCompanyName is not None:
+        item["AliasOrCompanyName"] = payload.AliasOrCompanyName
+    if payload.Address is not None:
+        item["Address"] = payload.Address
+    if payload.City is not None:
+        item["City"] = payload.City
+    if payload.State is not None:
+        item["State"] = payload.State
+    if payload.Pincode is not None:
+        item["Pincode"] = payload.Pincode
+    if payload.Contact_Person1 is not None:
+        item["Contact_Person1"] = payload.Contact_Person1
     if payload.Contact_Person2 is not None:
         item["Contact_Person2"] = payload.Contact_Person2
     if payload.Mobile1 is not None:
@@ -282,8 +293,6 @@ def create_order(payload: CreateOrder):
     """Create a new order in DynamoDB with multiple products."""
     try:
         logger.info(f"➕ Creating new order with {len(payload.Products)} product(s)")
-        if payload.TotalAmount is None or payload.TotalAmount < 0:
-            raise ValueError("TotalAmount must be a valid non-negative number")
         order_id = generate_order_id(payload.AgentId)
         ddb_products = build_products_for_storage(payload.Products)
         item = build_order_item(order_id, payload, ddb_products)
@@ -302,8 +311,6 @@ def update_order(order_id: int, payload: UpdateOrder):
     """Update an existing order in DynamoDB."""
     try:
         logger.info(f"✏️ Updating order {order_id} with {len(payload.Products)} product(s)")
-        if payload.TotalAmount is None or payload.TotalAmount < 0:
-            raise ValueError("TotalAmount must be a valid non-negative number")
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
