@@ -19,7 +19,7 @@ class CreateAgent(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Agent name")
     mobile: str = Field(..., description="10-digit mobile number")
     aadhar_Details: Optional[str] = Field(None, description="12-digit Aadhar number (optional)")
-    address: str = Field(..., min_length=1, max_length=500, description="Agent address")
+    address: Optional[str] = Field(None, max_length=500, description="Agent address (optional)")
 
     @field_validator('name')
     @classmethod
