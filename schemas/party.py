@@ -22,15 +22,15 @@ class Party(BaseModel):
 
 class CreateParty(BaseModel):
     partyName: str = Field(..., min_length=1, max_length=255, description="Party name")
-    aliasOrCompanyName: str = Field(..., min_length=1, max_length=255, description="Alias or company name")
+    aliasOrCompanyName: Optional[str] = Field(None, max_length=255, description="Alias or company name (optional)")
     contact_Person1: str = Field(..., min_length=1, max_length=255, description="First contact person name")
     contact_Person2: Optional[str] = Field(None, max_length=255, description="Second contact person name (optional)")
     mobile1: str = Field(..., description="Primary mobile number - 10 digits")
     mobile2: Optional[str] = Field(None, description="Secondary mobile number - 10 digits (optional)")
     email: Optional[str] = Field(None, description="Email address (optional)")
     address: Optional[str] = Field(None, max_length=500, description="Complete address (optional)")
-    city: Optional[str] = Field(None, max_length=100, description="City (optional)")
-    state: Optional[str] = Field(None, max_length=100, description="State (optional)")
+    city: str = Field(..., min_length=1, max_length=100, description="City")
+    state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
     agentId: Optional[int] = Field(None, description="Agent ID (optional)")
     orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
@@ -53,12 +53,15 @@ class CreateParty(BaseModel):
     @field_validator('aliasOrCompanyName')
     @classmethod
     def validate_alias_company_name(cls, v):
-        """Validate alias or company name"""
-        if not v or not v.strip():
-            raise ValueError("Alias or company name cannot be empty")
+        """Validate alias or company name (optional)"""
+        if not v:
+            return v
+
+        if not v.strip():
+            return None
 
         if len(v.strip()) < 2:
-            raise ValueError("Alias or company name must be at least 2 characters long")
+            raise ValueError("Alias or company name must be at least 2 characters long if provided")
 
         if len(v) > 255:
             raise ValueError("Alias or company name cannot exceed 255 characters")
@@ -215,15 +218,12 @@ class CreateParty(BaseModel):
     @field_validator('city')
     @classmethod
     def validate_city(cls, v):
-        """Validate city (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
+        """Validate city (required)"""
+        if not v or not v.strip():
+            raise ValueError("City name cannot be empty")
 
         if len(v.strip()) < 2:
-            raise ValueError("City name must be at least 2 characters long if provided")
+            raise ValueError("City name must be at least 2 characters long")
 
         if len(v) > 100:
             raise ValueError("City name cannot exceed 100 characters")
@@ -233,15 +233,12 @@ class CreateParty(BaseModel):
     @field_validator('state')
     @classmethod
     def validate_state(cls, v):
-        """Validate state (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
+        """Validate state (required)"""
+        if not v or not v.strip():
+            raise ValueError("State name cannot be empty")
 
         if len(v.strip()) < 2:
-            raise ValueError("State name must be at least 2 characters long if provided")
+            raise ValueError("State name must be at least 2 characters long")
 
         if len(v) > 100:
             raise ValueError("State name cannot exceed 100 characters")
@@ -275,15 +272,15 @@ class CreateParty(BaseModel):
 
 class UpdateParty(BaseModel):
     partyName: str = Field(..., min_length=1, max_length=255, description="Party name")
-    aliasOrCompanyName: str = Field(..., min_length=1, max_length=255, description="Alias or company name")
+    aliasOrCompanyName: Optional[str] = Field(None, max_length=255, description="Alias or company name (optional)")
     contact_Person1: str = Field(..., min_length=1, max_length=255, description="First contact person name")
     contact_Person2: Optional[str] = Field(None, max_length=255, description="Second contact person name (optional)")
     mobile1: str = Field(..., description="Primary mobile number - 10 digits")
     mobile2: Optional[str] = Field(None, description="Secondary mobile number - 10 digits (optional)")
     email: Optional[str] = Field(None, description="Email address (optional)")
     address: Optional[str] = Field(None, max_length=500, description="Complete address (optional)")
-    city: Optional[str] = Field(None, max_length=100, description="City (optional)")
-    state: Optional[str] = Field(None, max_length=100, description="State (optional)")
+    city: str = Field(..., min_length=1, max_length=100, description="City")
+    state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
     agentId: Optional[int] = Field(None, description="Agent ID (optional)")
     orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
@@ -306,12 +303,15 @@ class UpdateParty(BaseModel):
     @field_validator('aliasOrCompanyName')
     @classmethod
     def validate_alias_company_name(cls, v):
-        """Validate alias or company name"""
-        if not v or not v.strip():
-            raise ValueError("Alias or company name cannot be empty")
+        """Validate alias or company name (optional)"""
+        if not v:
+            return v
+
+        if not v.strip():
+            return None
 
         if len(v.strip()) < 2:
-            raise ValueError("Alias or company name must be at least 2 characters long")
+            raise ValueError("Alias or company name must be at least 2 characters long if provided")
 
         if len(v) > 255:
             raise ValueError("Alias or company name cannot exceed 255 characters")
@@ -461,15 +461,12 @@ class UpdateParty(BaseModel):
     @field_validator('city')
     @classmethod
     def validate_city(cls, v):
-        """Validate city (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
+        """Validate city (required)"""
+        if not v or not v.strip():
+            raise ValueError("City name cannot be empty")
 
         if len(v.strip()) < 2:
-            raise ValueError("City name must be at least 2 characters long if provided")
+            raise ValueError("City name must be at least 2 characters long")
 
         if len(v) > 100:
             raise ValueError("City name cannot exceed 100 characters")
@@ -479,18 +476,17 @@ class UpdateParty(BaseModel):
     @field_validator('state')
     @classmethod
     def validate_state(cls, v):
-        """Validate state (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
+        """Validate state (required)"""
+        if not v or not v.strip():
+            raise ValueError("State name cannot be empty")
 
         if len(v.strip()) < 2:
-            raise ValueError("State name must be at least 2 characters long if provided")
+            raise ValueError("State name must be at least 2 characters long")
 
         if len(v) > 100:
             raise ValueError("State name cannot exceed 100 characters")
+
+        return v.strip()
 
         return v.strip()
 
