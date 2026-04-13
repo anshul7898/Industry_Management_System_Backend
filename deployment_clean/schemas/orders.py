@@ -6,7 +6,7 @@ import re
 
 class Product(BaseModel):
     """Product schema for orders"""
-    ProductType: str = Field(..., min_length=1, description="Type of product (Stitching or Machine)")
+    ProductType: Optional[str] = Field(None, description="Type of product (Stitching or Machine)")
 
     ProductCategory: Optional[str] = Field(
         None,
@@ -15,9 +15,9 @@ class Product(BaseModel):
 
     ProductId: Optional[int] = Field(None, description="Product ID (optional for now)")
 
-    ProductSize: Union[int, str] = Field(..., description="Product size (integer for Stitching, string for Machine)")
-    BagMaterial: str = Field(..., min_length=1, description="Material of the bag")
-    Quantity: int = Field(..., ge=0, description="Quantity must be non-negative")
+    ProductSize: Optional[Union[int, str]] = Field(None, description="Product size (integer for Stitching, string for Machine)")
+    BagMaterial: Optional[str] = Field(None, description="Material of the bag")
+    Quantity: Optional[int] = Field(None, description="Quantity must be non-negative")
 
     # ── QuantityType — 'KG' or 'Pieces' ──────────────────────────────────────
     QuantityType: Optional[str] = Field(
@@ -25,19 +25,19 @@ class Product(BaseModel):
         description="Unit of quantity measurement: 'KG' or 'Pieces'"
     )
 
-    SheetGSM: int = Field(..., gt=0, description="Sheet GSM must be positive")
-    SheetColor: str = Field(..., min_length=1, description="Color of the sheet")
+    SheetGSM: Optional[int] = Field(None, description="Sheet GSM must be positive")
+    SheetColor: Optional[str] = Field(None, description="Color of the sheet")
 
     RollSize: Optional[str] = Field(None, description="Roll size (from Roll_Size_Table)")
 
     BorderGSM: Optional[int] = Field(None, description="Border GSM (not required for Machine type)")
     BorderColor: Optional[str] = Field(None, description="Color of the border (not required for Machine type)")
 
-    HandleType: str = Field(..., min_length=1, description="Type of handle")
-    HandleColor: str = Field(..., min_length=1, description="Color of the handle")
-    HandleGSM: int = Field(..., gt=0, description="Handle GSM must be positive")
-    PrintingType: str = Field(..., min_length=1, description="Type of printing")
-    PrintColor: str = Field(..., min_length=1, description="Color for printing")
+    HandleType: Optional[str] = Field(None, description="Type of handle")
+    HandleColor: Optional[str] = Field(None, description="Color of the handle")
+    HandleGSM: Optional[int] = Field(None, description="Handle GSM must be positive")
+    PrintingType: Optional[str] = Field(None, description="Type of printing")
+    PrintColor: Optional[str] = Field(None, description="Color for printing")
     Color: Optional[str] = Field(None, description="Main color")
 
     DesignType: Optional[str] = Field(None, description="Design type: 'Old' or 'New'")
@@ -45,18 +45,18 @@ class Product(BaseModel):
 
     PlateBlockNumber: Optional[str] = Field(None, description="Number of plates (1/2/3/4)")
     PlateType: Optional[str] = Field(None, description="Plate type: 'Old' or 'New'")
-    PlateRate: Optional[float] = Field(None, ge=0, description="Rate of the printing plate (optional)")
+    PlateRate: Optional[float] = Field(None, description="Rate of the printing plate (optional)")
 
-    Rate: float = Field(..., gt=0, description="Rate must be positive")
-    ProductAmount: float = Field(..., ge=0, description="Product amount (calculated with GST)")
+    Rate: Optional[float] = Field(None, description="Rate must be positive")
+    ProductAmount: Optional[float] = Field(None, description="Product amount (calculated with GST)")
 
-    FixAmount: Optional[float] = Field(None, ge=0, description="Fixed amount charge for this product (optional)")
+    FixAmount: Optional[float] = Field(None, description="Fixed amount charge for this product (optional)")
 
     # JobWorkRate — only applicable for KG quantity type ──────────────────────
-    JobWorkRate: Optional[float] = Field(None, ge=0, description="Job work rate charge for KG quantity type (optional)")
+    JobWorkRate: Optional[float] = Field(None, description="Job work rate charge for KG quantity type (optional)")
 
     # ── NEW: GST — percentage applied on (Quantity × Rate), one of 0, 5, 18 ──
-    GST: Optional[float] = Field(0, ge=0, description="GST percentage on (Quantity × Rate): 0, 5, or 18")
+    GST: Optional[float] = Field(None, description="GST percentage on (Quantity × Rate): 0, 5, or 18")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -245,15 +245,15 @@ class Product(BaseModel):
 
 class Order(BaseModel):
     """Order response model with products array"""
-    OrderId: int
-    AgentId: int
-    Party_Name: str
-    AliasOrCompanyName: str
-    Address: str
-    City: str
-    State: str
-    Pincode: int
-    Contact_Person1: str
+    OrderId: Optional[int] = None
+    AgentId: Optional[int] = None
+    Party_Name: Optional[str] = None
+    AliasOrCompanyName: Optional[str] = None
+    Address: Optional[str] = None
+    City: Optional[str] = None
+    State: Optional[str] = None
+    Pincode: Optional[int] = None
+    Contact_Person1: Optional[str] = None
     Contact_Person2: Optional[str] = None
     Mobile1: Optional[int] = None
     Mobile2: Optional[int] = None
@@ -264,11 +264,11 @@ class Order(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, description="Contact number for dispatch")
     Destination: Optional[str] = Field(None, description="Dispatch destination")
 
-    Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
+    Carting: Optional[float] = Field(None, description="Carting charges (optional)")
 
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
 
-    TotalAmount: float = Field(default=0, ge=0, description="Total amount of the order")
+    TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -296,17 +296,17 @@ class Order(BaseModel):
 
 class BaseOrderModel(BaseModel):
     """Base model for order creation and updates"""
-    AgentId: int = Field(..., gt=0, description="Agent ID must be positive")
-    Party_Name: str = Field(..., min_length=1, max_length=255)
+    AgentId: Optional[int] = Field(None, description="Agent ID")
+    Party_Name: Optional[str] = Field(None, max_length=255)
     AliasOrCompanyName: Optional[str] = Field(None, max_length=255, description="Alias or company name (optional)")
     Address: Optional[str] = Field(None, max_length=255, description="Address (optional)")
-    City: str = Field(..., min_length=1, max_length=100)
-    State: str = Field(..., min_length=1, max_length=100)
-    Pincode: Optional[int] = Field(None, ge=100000, le=999999, description="Pincode must be 6 digits if provided (optional)")
-    Contact_Person1: str = Field(..., min_length=1, max_length=255)
+    City: Optional[str] = Field(None, max_length=100)
+    State: Optional[str] = Field(None, max_length=100)
+    Pincode: Optional[int] = Field(None, description="Pincode must be 6 digits if provided (optional)")
+    Contact_Person1: Optional[str] = Field(None, max_length=255)
     Contact_Person2: Optional[str] = Field(None, max_length=255)
-    Mobile1: int = Field(..., ge=1000000000, le=9999999999, description="Mobile must be 10 digits")
-    Mobile2: Optional[int] = Field(None, ge=1000000000, le=9999999999)
+    Mobile1: Optional[int] = Field(None, description="Mobile must be 10 digits")
+    Mobile2: Optional[int] = Field(None)
     Email: Optional[str] = Field(None, max_length=255)
 
     BookingName: Optional[str] = Field(None, max_length=255)
@@ -314,11 +314,11 @@ class BaseOrderModel(BaseModel):
     DispatchContactNumber: Optional[str] = Field(None, max_length=20)
     Destination: Optional[str] = Field(None, max_length=255)
 
-    Carting: Optional[float] = Field(None, ge=0, description="Carting charges (optional)")
+    Carting: Optional[float] = Field(None, description="Carting charges (optional)")
 
-    Products: List[Product] = Field(..., min_length=1, description="At least one product is required")
+    Products: List[Product] = Field(default_factory=list, description="List of products in the order")
 
-    TotalAmount: float = Field(..., ge=0, description="Total amount of the order")
+    TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
