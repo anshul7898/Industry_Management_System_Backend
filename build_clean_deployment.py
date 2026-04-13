@@ -92,7 +92,8 @@ with zipfile.ZipFile(ZIP_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
     for root, dirs, files in os.walk(CLEAN_DEPLOY_DIR):
         for file in files:
             file_path = os.path.join(root, file)
-            arcname = os.path.relpath(file_path, CLEAN_DEPLOY_DIR)
+            # Use forward slashes for zip paths so it works on Lambda (Linux)
+            arcname = os.path.relpath(file_path, CLEAN_DEPLOY_DIR).replace("\\", "/")
             zipf.write(file_path, arcname)
 
 size_mb = os.path.getsize(ZIP_PATH) / (1024 * 1024)
