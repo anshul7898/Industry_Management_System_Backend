@@ -34,4 +34,7 @@ CORS_ORIGINS = [
     "http://localhost:3001",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
+    "http://13.233.166.29:8000",
+    "https://main.diukjwr9s4a1a.amplifyapp.com",
+    "https://main.d2tcgd36jwnrpw.amplifyapp.com",
 ]
