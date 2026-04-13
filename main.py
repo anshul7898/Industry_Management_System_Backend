@@ -20,10 +20,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://main.diukjwr9s4a1a.amplifyapp.com",
-        "https://main.d2tcgd36jwnrpw.amplifyapp.com"
-    ], # fallback for safety
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
