@@ -203,12 +203,14 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     TotalAmount = sum(ProductAmounts) + Carting.
     ProductAmount for each product already contains the GST component as
     computed by the frontend. We persist TotalAmount as-is.
+    OrderStatus defaults to 'ToDo' if not provided.
     """
     item = {
         "OrderId": order_id,
         "deleted": False,
         "Products": ddb_products,
         "TotalAmount": Decimal(str(payload.TotalAmount)) if payload.TotalAmount is not None else Decimal("0"),
+        "OrderStatus": payload.OrderStatus,
     }
 
     if payload.AgentId is not None:

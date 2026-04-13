@@ -270,6 +270,8 @@ class Order(BaseModel):
 
     TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
+    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
+
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('TotalAmount', mode='before')
@@ -292,6 +294,19 @@ class Order(BaseModel):
             return float(v)
         except (TypeError, ValueError):
             return None
+
+    @field_validator('OrderStatus', mode='before')
+    @classmethod
+    def validate_order_status(cls, v):
+        if v is None:
+            return "ToDo"
+        if isinstance(v, str) and v.strip() == "":
+            return "ToDo"
+        status = v.strip() if isinstance(v, str) else str(v)
+        valid_statuses = ("ToDo", "In-Progress", "Done")
+        if status in valid_statuses:
+            return status
+        return "ToDo"
 
 
 class BaseOrderModel(BaseModel):
@@ -319,6 +334,8 @@ class BaseOrderModel(BaseModel):
     Products: List[Product] = Field(default_factory=list, description="List of products in the order")
 
     TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
+
+    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -358,6 +375,19 @@ class BaseOrderModel(BaseModel):
             return float(v)
         except (TypeError, ValueError):
             return None
+
+    @field_validator('OrderStatus', mode='before')
+    @classmethod
+    def validate_order_status_base(cls, v):
+        if v is None:
+            return "ToDo"
+        if isinstance(v, str) and v.strip() == "":
+            return "ToDo"
+        status = v.strip() if isinstance(v, str) else str(v)
+        valid_statuses = ("ToDo", "In-Progress", "Done")
+        if status in valid_statuses:
+            return status
+        return "ToDo"
 
 
 class CreateOrder(BaseOrderModel):
