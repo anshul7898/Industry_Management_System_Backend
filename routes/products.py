@@ -159,6 +159,7 @@ def update_product(product_id: int, payload: UpdateProduct):
             "BorderColor": payload.borderColor,
             "HandleType": payload.handleType,
             "HandleColor": payload.handleColor,
+            "AlternativeHandleColor": payload.alternativeHandleColor,
             "HandleGSM": ddb_decimal(payload.handleGSM),
             "PrintingType": payload.printingType,
             "PrintColor": payload.printColor,
@@ -254,6 +255,8 @@ def search_products(filters: SearchProduct):
             if filters.borderColor and item.get("BorderColor") != filters.borderColor:
                 continue
             if filters.handleColor and item.get("HandleColor") != filters.handleColor:
+                continue
+            if filters.alternativeHandleColor and item.get("AlternativeHandleColor") != filters.alternativeHandleColor:
                 continue
             if filters.printingType and item.get("PrintingType") != filters.printingType:
                 continue

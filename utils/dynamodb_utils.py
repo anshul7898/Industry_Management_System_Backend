@@ -80,6 +80,7 @@ def convert_product_for_storage(product: Dict[str, Any]) -> Dict[str, Any]:
         "BorderColor": product.get("BorderColor"),
         "HandleType": product.get("HandleType"),
         "HandleColor": product.get("HandleColor"),
+        "AlternativeHandleColor": product.get("AlternativeHandleColor"),
         "HandleGSM": int(product.get("HandleGSM", 0)),
         "PrintingType": product.get("PrintingType"),
         "PrintColor": product.get("PrintColor"),

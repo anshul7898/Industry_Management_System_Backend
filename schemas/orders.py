@@ -36,6 +36,7 @@ class Product(BaseModel):
 
     HandleType: Optional[str] = Field(None, description="Type of handle")
     HandleColor: Optional[str] = Field(None, description="Color of the handle")
+    AlternativeHandleColor: Optional[str] = Field(None, description="Alternative handle color")
     HandleGSM: Optional[int] = Field(None, description="Handle GSM must be positive")
     PrintingType: Optional[str] = Field(None, description="Type of printing")
     PrintColor: Optional[str] = Field(None, description="Color for printing")
