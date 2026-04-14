@@ -92,6 +92,7 @@ def normalize_product_item(item: dict) -> dict:
         "borderColor": item.get("BorderColor"),
         "handleType": item.get("HandleType"),
         "handleColor": item.get("HandleColor"),
+        "alternativeHandleColor": item.get("AlternativeHandleColor"),
         "handleGSM": convert_decimal(item.get("HandleGSM")),
         "printingType": item.get("PrintingType"),
         "printColor": item.get("PrintColor"),
