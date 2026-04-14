@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List, Union
 from decimal import Decimal
+from datetime import date
 import re
 
 
@@ -272,6 +273,10 @@ class Order(BaseModel):
 
     OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
 
+    OrderStartDate: Optional[date] = Field(None, description="Order start date (defaults to today's date)")
+
+    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Done')")
+
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('TotalAmount', mode='before')
@@ -308,6 +313,36 @@ class Order(BaseModel):
             return status
         return "ToDo"
 
+    @field_validator('OrderStartDate', mode='before')
+    @classmethod
+    def validate_order_start_date(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
+
+    @field_validator('OrderEndDate', mode='before')
+    @classmethod
+    def validate_order_end_date(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
+
 
 class BaseOrderModel(BaseModel):
     """Base model for order creation and updates"""
@@ -336,6 +371,10 @@ class BaseOrderModel(BaseModel):
     TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
     OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
+
+    OrderStartDate: Optional[date] = Field(None, description="Order start date (defaults to today's date)")
+
+    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Done')")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -388,6 +427,36 @@ class BaseOrderModel(BaseModel):
         if status in valid_statuses:
             return status
         return "ToDo"
+
+    @field_validator('OrderStartDate', mode='before')
+    @classmethod
+    def validate_order_start_date_base(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
+
+    @field_validator('OrderEndDate', mode='before')
+    @classmethod
+    def validate_order_end_date_base(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
 
 
 class CreateOrder(BaseOrderModel):

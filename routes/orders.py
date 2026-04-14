@@ -204,6 +204,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     ProductAmount for each product already contains the GST component as
     computed by the frontend. We persist TotalAmount as-is.
     OrderStatus defaults to 'ToDo' if not provided.
+    OrderStartDate defaults to today's date if not provided.
     """
     item = {
         "OrderId": order_id,
@@ -212,6 +213,12 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
         "TotalAmount": Decimal(str(payload.TotalAmount)) if payload.TotalAmount is not None else Decimal("0"),
         "OrderStatus": payload.OrderStatus,
     }
+
+    if payload.OrderStartDate is not None:
+        item["OrderStartDate"] = payload.OrderStartDate.isoformat() if hasattr(payload.OrderStartDate, 'isoformat') else str(payload.OrderStartDate)
+    
+    if payload.OrderEndDate is not None:
+        item["OrderEndDate"] = payload.OrderEndDate.isoformat() if hasattr(payload.OrderEndDate, 'isoformat') else str(payload.OrderEndDate)
 
     if payload.AgentId is not None:
         item["AgentId"] = payload.AgentId
@@ -294,10 +301,17 @@ def get_order(order_id: int):
 def create_order(payload: CreateOrder):
     """Create a new order in DynamoDB with multiple products."""
     try:
+        from datetime import date
+        
         logger.info(f"➕ Creating new order with {len(payload.Products)} product(s)")
         order_id = generate_order_id(payload.AgentId)
         ddb_products = build_products_for_storage(payload.Products)
         item = build_order_item(order_id, payload, ddb_products)
+        
+        # Set OrderStartDate to today if not provided
+        if "OrderStartDate" not in item or item["OrderStartDate"] is None:
+            item["OrderStartDate"] = date.today().isoformat()
+        
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} created with {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
@@ -312,6 +326,8 @@ def create_order(payload: CreateOrder):
 def update_order(order_id: int, payload: UpdateOrder):
     """Update an existing order in DynamoDB."""
     try:
+        from datetime import date
+        
         logger.info(f"✏️ Updating order {order_id} with {len(payload.Products)} product(s)")
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing or is_item_deleted(existing):
@@ -319,6 +335,11 @@ def update_order(order_id: int, payload: UpdateOrder):
         ddb_products = build_products_for_storage(payload.Products)
         item = build_order_item(order_id, payload, ddb_products)
         item["deleted"] = existing.get("deleted", False)
+        
+        # Auto-set OrderEndDate to today when status is changed to "Done"
+        if payload.OrderStatus == "Done" and payload.OrderEndDate is None:
+            item["OrderEndDate"] = date.today().isoformat()
+        
         orders_table.put_item(Item=item)
         logger.info(f"✓ Order {order_id} updated with {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
