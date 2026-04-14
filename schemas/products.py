@@ -66,6 +66,7 @@ class SearchProduct(BaseModel):
     sheetColor: Optional[str] = None
     borderColor: Optional[str] = None
     handleColor: Optional[str] = None
+    alternativeHandleColor: Optional[str] = None
     printingType: Optional[str] = None
     printColor: Optional[str] = None
     color: Optional[str] = None
