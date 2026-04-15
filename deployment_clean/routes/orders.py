@@ -59,6 +59,9 @@ def build_products_for_storage(products) -> list:
         quantity_type = raw.get("QuantityType")
         job_work_rate = raw.get("JobWorkRate")
         gst           = raw.get("GST")          # ── NEW ──
+        width         = raw.get("Width")
+        height        = raw.get("Height")
+        gusset        = raw.get("Gusset")
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -137,6 +140,9 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")
         logger.info(f"Product {idx + 1} JobWorkRate      : {product_dict.get('JobWorkRate')}")
         logger.info(f"Product {idx + 1} GST              : {product_dict.get('GST')}")  # ── NEW ──
+        logger.info(f"Product {idx + 1} Width            : {product_dict.get('Width')}")
+        logger.info(f"Product {idx + 1} Height           : {product_dict.get('Height')}")
+        logger.info(f"Product {idx + 1} Gusset           : {product_dict.get('Gusset')}")
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -179,6 +185,16 @@ def build_products_for_storage(products) -> list:
         if converted_product.get("GST") != expected_gst:
             logger.warning(f"⚠️ GST corrupted — restoring to '{expected_gst}'")
             converted_product["GST"] = expected_gst
+
+        # Restore Width, Height, Gusset if corrupted by convert_product_for_storage
+        for dim_key, dim_val in (("Width", width), ("Height", height), ("Gusset", gusset)):
+            if dim_val is not None:
+                expected_dim = int(dim_val)
+                if converted_product.get(dim_key) != expected_dim:
+                    logger.warning(f"⚠️ {dim_key} corrupted — restoring to '{expected_dim}'")
+                    converted_product[dim_key] = expected_dim
+            else:
+                converted_product.pop(dim_key, None)
 
         # Restore QuantityType if corrupted by convert_product_for_storage
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):

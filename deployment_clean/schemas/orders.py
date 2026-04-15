@@ -17,6 +17,12 @@ class Product(BaseModel):
     ProductId: Optional[int] = Field(None, description="Product ID (optional for now)")
 
     ProductSize: Optional[Union[int, str]] = Field(None, description="Product size (integer for Stitching, string for Machine)")
+
+    # ── Custom size dimensions ─────────────────────────────────────────────
+    Width: Optional[int] = Field(None, description="Custom size width (number)")
+    Height: Optional[int] = Field(None, description="Custom size height (number)")
+    Gusset: Optional[int] = Field(None, description="Custom size gusset (number)")
+
     BagMaterial: Optional[str] = Field(None, description="Material of the bag")
     Quantity: Optional[int] = Field(None, description="Quantity must be non-negative")
 
@@ -90,6 +96,8 @@ class Product(BaseModel):
             try:
                 return int(v)
             except ValueError:
+                # Normalize X separators to have spaces: "10X20X5" → "10 X 20 X 5"
+                v = re.sub(r'\s*[Xx]\s*', ' X ', v)
                 return v
         return v
 
@@ -101,6 +109,18 @@ class Product(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return None
         return str(v).strip()
+
+    @field_validator('Width', 'Height', 'Gusset', mode='before')
+    @classmethod
+    def coerce_dimension_to_int(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
 
     # QuantityType validator ───────────────────────────────────────────────────
     @field_validator('QuantityType', mode='before')
