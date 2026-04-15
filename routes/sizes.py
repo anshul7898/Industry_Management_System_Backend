@@ -3,6 +3,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from botocore.exceptions import ClientError
 import boto3
+import re
+from typing import Optional
 from config.settings import AWS_REGION
 
 logger = logging.getLogger("uvicorn.error")
@@ -40,6 +42,9 @@ CATEGORY_TO_SIZE_KEY = {
 
 class AddSizeRequest(BaseModel):
     size: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    gusset: Optional[int] = None
 
 
 def scan_all_items(table) -> list:
@@ -118,6 +123,8 @@ def add_size(category: str, body: AddSizeRequest):
         )
 
     size_value = body.size.strip()
+    # Normalize X separators: "10X20X5" or "10x20x5" → "10 X 20 X 5"
+    size_value = re.sub(r'\s*[Xx]\s*', ' X ', size_value)
     if not size_value:
         raise HTTPException(status_code=400, detail="Size value cannot be empty.")
 
@@ -140,10 +147,38 @@ def add_size(category: str, body: AddSizeRequest):
         # ── Auto-increment numeric ID (matches DynamoDB key type N) ──────────
         new_id = get_next_id(existing_items)
 
-        table.put_item(Item={
+        new_item = {
             "ID":   new_id,       # ✅ Number — matches partition key type N
             "Size": size_value,   # ✅ Size string value
-        })
+        }
+
+        # Use explicitly provided dimensions, or fall back to parsing the size string.
+        # e.g. "67 X 12 X 16" → Width=67, Height=12, Gusset=16
+        #      "16 X 21"      → Width=16, Height=21 (no Gusset)
+        parts = [p.strip() for p in re.split(r'\s*[Xx]\s*', size_value) if p.strip()]
+
+        def _get_dim(explicit_val, index: int):
+            if explicit_val is not None:
+                return explicit_val
+            if index < len(parts):
+                try:
+                    return int(parts[index])
+                except ValueError:
+                    return None
+            return None
+
+        width_val  = _get_dim(body.width,  0)
+        height_val = _get_dim(body.height, 1)
+        gusset_val = _get_dim(body.gusset, 2)
+
+        if width_val is not None:
+            new_item["Width"] = width_val
+        if height_val is not None:
+            new_item["Height"] = height_val
+        if gusset_val is not None:
+            new_item["Gusset"] = gusset_val
+
+        table.put_item(Item=new_item)
         logger.info(
             f"Added size '{size_value}' with ID={new_id} to {table_name}"
         )
