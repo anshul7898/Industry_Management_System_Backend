@@ -8,11 +8,13 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from config.settings import AWS_REGION
+
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 # ── DynamoDB table ────────────────────────────────────────────────
-dynamodb = boto3.resource("dynamodb", region_name="ap-south-1")
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 roll_size_table = dynamodb.Table("Roll_Size_Table")
 
 
