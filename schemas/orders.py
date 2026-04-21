@@ -292,11 +292,11 @@ class Order(BaseModel):
 
     TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
-    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
+    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Delivered'")
 
     OrderStartDate: Optional[date] = Field(None, description="Order start date (defaults to today's date)")
 
-    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Done')")
+    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Delivered')")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -329,7 +329,7 @@ class Order(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return "ToDo"
         status = v.strip() if isinstance(v, str) else str(v)
-        valid_statuses = ("ToDo", "In-Progress", "Done")
+        valid_statuses = ("ToDo", "In-Progress", "Delivered")
         if status in valid_statuses:
             return status
         return "ToDo"
@@ -391,11 +391,11 @@ class BaseOrderModel(BaseModel):
 
     TotalAmount: Optional[float] = Field(None, description="Total amount of the order")
 
-    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Done'")
+    OrderStatus: str = Field(default="ToDo", description="Order status: 'ToDo', 'In-Progress', or 'Delivered'")
 
     OrderStartDate: Optional[date] = Field(None, description="Order start date (defaults to today's date)")
 
-    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Done')")
+    OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Delivered')")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -444,7 +444,7 @@ class BaseOrderModel(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return "ToDo"
         status = v.strip() if isinstance(v, str) else str(v)
-        valid_statuses = ("ToDo", "In-Progress", "Done")
+        valid_statuses = ("ToDo", "In-Progress", "Delivered")
         if status in valid_statuses:
             return status
         return "ToDo"
