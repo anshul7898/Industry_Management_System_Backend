@@ -17,7 +17,6 @@ class Party(BaseModel):
     email: Optional[str] = None
     mobile1: Optional[str] = None
     mobile2: Optional[str] = None
-    orderId: Optional[str] = None
 
 
 class CreateParty(BaseModel):
@@ -33,7 +32,6 @@ class CreateParty(BaseModel):
     state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
     agentId: Optional[int] = Field(None, description="Agent ID (optional)")
-    orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
 
     @field_validator('partyName')
     @classmethod
@@ -245,21 +243,6 @@ class CreateParty(BaseModel):
 
         return v.strip()
 
-    @field_validator('orderId')
-    @classmethod
-    def validate_order_id(cls, v):
-        """Validate order ID (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
-
-        if len(v) > 100:
-            raise ValueError("Order ID cannot exceed 100 characters")
-
-        return v.strip()
-
     @field_validator('agentId')
     @classmethod
     def validate_agent_id(cls, v):
@@ -283,7 +266,6 @@ class UpdateParty(BaseModel):
     state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
     agentId: Optional[int] = Field(None, description="Agent ID (optional)")
-    orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
 
     @field_validator('partyName')
     @classmethod
@@ -487,21 +469,6 @@ class UpdateParty(BaseModel):
             raise ValueError("State name cannot exceed 100 characters")
 
         return v.strip()
-
-        return v.strip()
-
-    @field_validator('orderId')
-    @classmethod
-    def validate_order_id(cls, v):
-        """Validate order ID (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
-
-        if len(v) > 100:
-            raise ValueError("Order ID cannot exceed 100 characters")
 
         return v.strip()
 
