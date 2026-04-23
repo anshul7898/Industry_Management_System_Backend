@@ -66,6 +66,9 @@ class Product(BaseModel):
     # ── NEW: GST — percentage applied on (Quantity × Rate), one of 0, 5, 18 ──
     GST: Optional[float] = Field(None, description="GST percentage on (Quantity × Rate): 0, 5, or 18")
 
+    # ── NEW: ProductStatus — 'ToDo', 'In-Progress', or 'Delivered' ──────────────
+    ProductStatus: str = Field(default="ToDo", description="Product status: 'ToDo', 'In-Progress', or 'Delivered'")
+
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     @field_validator('ProductId', mode='before')
@@ -264,10 +267,22 @@ class Product(BaseModel):
             return None
         return v
 
+    @field_validator('ProductStatus', mode='before')
+    @classmethod
+    def validate_product_status(cls, v):
+        if v is None:
+            return "ToDo"
+        if isinstance(v, str) and v.strip() == "":
+            return "ToDo"
+        valid_statuses = ("ToDo", "In-Progress", "Delivered")
+        if isinstance(v, str) and v.strip() in valid_statuses:
+            return v.strip()
+        return "ToDo"
+
 
 class Order(BaseModel):
     """Order response model with products array"""
-    OrderId: Optional[int] = None
+    OrderId: Optional[str] = None
     AgentId: Optional[int] = None
     Party_Name: Optional[str] = None
     AliasOrCompanyName: Optional[str] = None
@@ -299,6 +314,16 @@ class Order(BaseModel):
     OrderEndDate: Optional[date] = Field(None, description="Order end date (blank by default, auto-calculated when status is 'Delivered')")
 
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
+
+    @field_validator('OrderId', mode='before')
+    @classmethod
+    def convert_order_id_to_string(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v
+        # Convert number (int, float, Decimal) to string
+        return str(int(v)) if isinstance(v, (int, float, Decimal)) else str(v)
 
     @field_validator('TotalAmount', mode='before')
     @classmethod
