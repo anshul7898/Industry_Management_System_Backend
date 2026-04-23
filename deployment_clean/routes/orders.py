@@ -20,13 +20,37 @@ logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 
-def generate_order_id(agent_id: Optional[int]) -> int:
-    """Generate a unique numeric OrderId"""
-    timestamp = int(time.time())
-    if agent_id is None:
-        order_id = timestamp
-    else:
-        order_id = int(str(agent_id) + str(timestamp)[-6:])
+def generate_order_id(agent_id: Optional[int]) -> str:
+    """Generate a unique OrderId in format YYMMDDNNNN"""
+    from datetime import date
+    
+    today = date.today()
+    date_str = today.strftime('%y%m%d')  # YYMMDD format
+    
+    # Query existing orders for today to find the next sequence number
+    try:
+        response = orders_table.scan()
+        items = response.get('Items', [])
+        
+        # Filter orders from today and extract sequence numbers
+        today_orders = []
+        for item in items:
+            order_id = item.get('OrderId', '')
+            # Check if it starts with today's date and is a string
+            if isinstance(order_id, str) and order_id.startswith(date_str):
+                today_orders.append(order_id)
+        
+        # Get the next sequence number (1-indexed)
+        next_seq = len(today_orders) + 1
+        order_id = f"{date_str}{next_seq:04d}"
+        
+    except Exception as e:
+        logger.warning(f"Failed to query existing orders for sequence: {e}. Using fallback sequence.")
+        # Fallback: use a simple counter based on timestamp
+        timestamp = int(time.time())
+        next_seq = (timestamp % 10000) % 9999 + 1
+        order_id = f"{date_str}{next_seq:04d}"
+    
     logger.info(f"Generated OrderId: {order_id} from AgentId: {agent_id}")
     return order_id
 
@@ -34,7 +58,7 @@ def generate_order_id(agent_id: Optional[int]) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    FixAmount, QuantityType, JobWorkRate, and GST are stored if present.
+    FixAmount, QuantityType, JobWorkRate, GST, and ProductStatus are stored if present.
 
     ProductAmount stored here is the final value already computed by the
     frontend:
@@ -54,6 +78,7 @@ def build_products_for_storage(products) -> list:
         plate_type    = raw.get("PlateType")
         design_type   = raw.get("DesignType")
         design_style  = raw.get("DesignStyle")
+        product_status = raw.get("ProductStatus", "ToDo")  # Default to "ToDo" if not provided
         roll_size     = raw.get("RollSize")
         fix_amount    = raw.get("FixAmount")
         quantity_type = raw.get("QuantityType")
@@ -203,6 +228,11 @@ def build_products_for_storage(products) -> list:
                 logger.warning(f"⚠️ QuantityType corrupted — restoring to '{expected_qt}'")
                 converted_product["QuantityType"] = expected_qt
 
+        # ── NEW: Ensure ProductStatus is persisted (default to "ToDo") ─────────
+        if product_status not in ("ToDo", "In-Progress", "Delivered"):
+            product_status = "ToDo"
+        converted_product["ProductStatus"] = product_status
+
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
 
@@ -221,13 +251,74 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     computed by the frontend. We persist TotalAmount as-is.
     OrderStatus defaults to 'ToDo' if not provided.
     OrderStartDate defaults to today's date if not provided.
+    
+    CASCADING LOGIC (COMPLETE):
+    1. NEW ORDER: All products = "ToDo", Order = "ToDo"
+    
+    2. SINGLE PRODUCT:
+       DELIVERED:
+         - If product marked as Delivered → order becomes Delivered
+         - If order marked as Delivered → product becomes Delivered
+       IN-PROGRESS:
+         - If product marked as In-Progress → order becomes In-Progress
+         - If order marked as In-Progress → product becomes In-Progress
+       TODO:
+         - If product marked as ToDo → order becomes ToDo
+         - If order marked as ToDo → product becomes ToDo
+    
+    3. MULTIPLE PRODUCTS:
+       DELIVERED:
+         - If ALL products marked as Delivered → order becomes Delivered
+         - If order marked as Delivered → ALL products become Delivered
+       IN-PROGRESS:
+         - If ALL products marked as In-Progress → order becomes In-Progress
+         - If order marked as In-Progress → ALL products become In-Progress
+       TODO:
+         - If ALL products marked as ToDo → order becomes ToDo
+         - If order marked as ToDo → ALL products become ToDo
     """
+    # Convert OrderId to int if it's a string (e.g., "2604220001" -> 2604220001)
+    order_id_value = int(order_id) if isinstance(order_id, str) else order_id
+    
+    # Handle cascading status logic
+    order_status = payload.OrderStatus or "ToDo"
+    product_count = len(ddb_products) if ddb_products else 0
+    
+    # Case 1: Single product order
+    if product_count == 1:
+        # Sync order status to product (order-to-product sync)
+        if order_status == "Delivered":
+            ddb_products[0]["ProductStatus"] = "Delivered"
+        elif order_status == "In-Progress":
+            ddb_products[0]["ProductStatus"] = "In-Progress"
+        elif order_status == "ToDo":
+            ddb_products[0]["ProductStatus"] = "ToDo"
+        # Note: Product-to-order sync happens in get_order() and list_orders() 
+        # when all products have the same status (auto-calculation on retrieval)
+    
+    # Case 2: Multiple products order
+    elif product_count > 1:
+        # If order status is directly set to Delivered, mark all products as Delivered
+        if order_status == "Delivered":
+            for product in ddb_products:
+                product["ProductStatus"] = "Delivered"
+        # If order status is directly set to In-Progress, mark all products as In-Progress
+        elif order_status == "In-Progress":
+            for product in ddb_products:
+                product["ProductStatus"] = "In-Progress"
+        # If order status is directly set to ToDo, mark all products as ToDo
+        elif order_status == "ToDo":
+            for product in ddb_products:
+                product["ProductStatus"] = "ToDo"
+        # Note: Product-to-order sync happens in get_order() and list_orders() 
+        # when ALL products have the same status (auto-calculation on retrieval)
+    
     item = {
-        "OrderId": order_id,
+        "OrderId": order_id_value,
         "deleted": False,
         "Products": ddb_products,
         "TotalAmount": Decimal(str(payload.TotalAmount)) if payload.TotalAmount is not None else Decimal("0"),
-        "OrderStatus": payload.OrderStatus,
+        "OrderStatus": order_status,
     }
 
     if payload.OrderStartDate is not None:
@@ -284,6 +375,21 @@ def list_orders():
         response = orders_table.scan()
         items = filter_deleted_items(response.get("Items", []))
         converted_items = convert_items_to_python(items)
+        
+        # ── NEW: Auto-update order status based on product statuses ──────────
+        for order in converted_items:
+            products = order.get("Products", [])
+            if products:
+                # If all products are "Delivered", set order status to "Delivered"
+                if all(p.get("ProductStatus") == "Delivered" for p in products):
+                    order["OrderStatus"] = "Delivered"
+                # If all products are "In-Progress", set order status to "In-Progress"
+                elif all(p.get("ProductStatus") == "In-Progress" for p in products):
+                    order["OrderStatus"] = "In-Progress"
+                # If all products are "ToDo", set order status to "ToDo"
+                elif all(p.get("ProductStatus") == "ToDo" for p in products):
+                    order["OrderStatus"] = "ToDo"
+        
         logger.info(f"✓ Successfully retrieved {len(converted_items)} orders")
         return converted_items
     except ClientError as e:
@@ -303,7 +409,22 @@ def get_order(order_id: int):
         order = response.get("Item")
         if not order or is_item_deleted(order):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
-        return convert_item_to_python(order)
+        order = convert_item_to_python(order)
+        
+        # ── Auto-update order status based on product statuses ──────────
+        products = order.get("Products", [])
+        if products:
+            # If all products are "Delivered", set order status to "Delivered"
+            if all(p.get("ProductStatus") == "Delivered" for p in products):
+                order["OrderStatus"] = "Delivered"
+            # If all products are "In-Progress", set order status to "In-Progress"
+            elif all(p.get("ProductStatus") == "In-Progress" for p in products):
+                order["OrderStatus"] = "In-Progress"
+            # If all products are "ToDo", set order status to "ToDo"
+            elif all(p.get("ProductStatus") == "ToDo" for p in products):
+                order["OrderStatus"] = "ToDo"
+        
+        return order
     except HTTPException:
         raise
     except ClientError as e:
@@ -352,8 +473,8 @@ def update_order(order_id: int, payload: UpdateOrder):
         item = build_order_item(order_id, payload, ddb_products)
         item["deleted"] = existing.get("deleted", False)
         
-        # Auto-set OrderEndDate to today when status is changed to "Done"
-        if payload.OrderStatus == "Done" and payload.OrderEndDate is None:
+        # Auto-set OrderEndDate to today when status is changed to "Delivered"
+        if payload.OrderStatus == "Delivered" and payload.OrderEndDate is None:
             item["OrderEndDate"] = date.today().isoformat()
         
         orders_table.put_item(Item=item)
