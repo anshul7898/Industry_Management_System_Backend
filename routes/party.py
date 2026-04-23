@@ -77,12 +77,26 @@ def get_party_by_name(party_name: str):
 
 
 @router.get("/party/{party_id}", response_model=Party)
-def get_party(party_id: int):
+def get_party(party_id: str):
     try:
-        if party_id <= 0:
-            raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
+        if not party_id or not party_id.strip():
+            raise HTTPException(status_code=400, detail="Party ID is required")
 
-        item = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        # Convert formatted ID to numeric
+        # Format: "A01P001" -> extract "001" (numeric party_id)
+        numeric_id = None
+        if "P" in party_id:
+            try:
+                numeric_id = int(party_id.split("P")[-1])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Party ID format")
+        else:
+            try:
+                numeric_id = int(party_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Party ID")
+
+        item = party_table.get_item(Key={"PartyId": numeric_id}).get("Item")
         if not item or is_item_deleted(item):
             raise HTTPException(status_code=404, detail="Party not found")
         return normalize_party_item(item)
@@ -98,10 +112,31 @@ def get_party(party_id: int):
 @router.post("/party", response_model=Party)
 def create_party(payload: CreateParty):
     try:
-        party_id = get_next_party_id()
+        # Get numeric agent_id - convert from formatted string if needed
+        agent_id = payload.agentId
+        numeric_agent_id = None
+        
+        if agent_id:
+            if isinstance(agent_id, str) and agent_id.startswith("A"):
+                try:
+                    numeric_agent_id = int(agent_id[1:])
+                except (ValueError, IndexError):
+                    numeric_agent_id = None
+            elif isinstance(agent_id, int):
+                numeric_agent_id = agent_id
+            elif isinstance(agent_id, str):
+                try:
+                    numeric_agent_id = int(agent_id)
+                except ValueError:
+                    numeric_agent_id = None
+        
+        if not numeric_agent_id:
+            numeric_agent_id = 1  # Default agent
+        
+        party_id_num = get_next_party_id(numeric_agent_id)
 
         item = {
-            "PartyId": party_id,
+            "PartyId": party_id_num,
             "PartyName": payload.partyName,
             "AliasOrCompanyName": payload.aliasOrCompanyName,
             "Contact_Person1": payload.contact_Person1,
@@ -113,14 +148,13 @@ def create_party(payload: CreateParty):
             "City": payload.city,
             "State": payload.state,
             "Pincode": payload.pincode,
-            "AgentId": payload.agentId,
-            "OrderId": payload.orderId,
+            "AgentId": numeric_agent_id,
             "deleted": False,
         }
 
         party_table.put_item(Item=item)
 
-        logger.info(f"Party created successfully with ID: {party_id}")
+        logger.info(f"Party created successfully with ID: {party_id_num}")
         return normalize_party_item(item)
 
     except ValidationError as e:
@@ -138,17 +172,44 @@ def create_party(payload: CreateParty):
 
 
 @router.put("/party/{party_id}", response_model=Party)
-def update_party(party_id: int, payload: UpdateParty):
+def update_party(party_id: str, payload: UpdateParty):
     try:
-        if party_id <= 0:
-            raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
+        if not party_id or not party_id.strip():
+            raise HTTPException(status_code=400, detail="Party ID is required")
 
-        existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        # Convert formatted ID to numeric
+        numeric_id = None
+        if "P" in party_id:
+            try:
+                numeric_id = int(party_id.split("P")[-1])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Party ID format")
+        else:
+            try:
+                numeric_id = int(party_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Party ID")
+
+        existing = party_table.get_item(Key={"PartyId": numeric_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Party not found")
 
+        # Get numeric agent_id
+        numeric_agent_id = payload.agentId
+        if isinstance(numeric_agent_id, str):
+            if numeric_agent_id.startswith("A"):
+                try:
+                    numeric_agent_id = int(numeric_agent_id[1:])
+                except (ValueError, IndexError):
+                    numeric_agent_id = existing.get("AgentId")
+            else:
+                try:
+                    numeric_agent_id = int(numeric_agent_id)
+                except ValueError:
+                    numeric_agent_id = existing.get("AgentId")
+
         item = {
-            "PartyId": party_id,
+            "PartyId": numeric_id,
             "PartyName": payload.partyName,
             "AliasOrCompanyName": payload.aliasOrCompanyName,
             "Contact_Person1": payload.contact_Person1,
@@ -160,8 +221,7 @@ def update_party(party_id: int, payload: UpdateParty):
             "City": payload.city,
             "State": payload.state,
             "Pincode": payload.pincode,
-            "AgentId": payload.agentId,
-            "OrderId": payload.orderId,
+            "AgentId": numeric_agent_id,
         }
 
         item["deleted"] = existing.get("deleted", False)
@@ -188,17 +248,30 @@ def update_party(party_id: int, payload: UpdateParty):
 
 
 @router.delete("/party/{party_id}")
-def delete_party(party_id: int):
+def delete_party(party_id: str):
     try:
-        if party_id <= 0:
-            raise HTTPException(status_code=400, detail="Party ID must be a positive integer")
+        if not party_id or not party_id.strip():
+            raise HTTPException(status_code=400, detail="Party ID is required")
 
-        existing = party_table.get_item(Key={"PartyId": party_id}).get("Item")
+        # Convert formatted ID to numeric
+        numeric_id = None
+        if "P" in party_id:
+            try:
+                numeric_id = int(party_id.split("P")[-1])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Party ID format")
+        else:
+            try:
+                numeric_id = int(party_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Party ID")
+
+        existing = party_table.get_item(Key={"PartyId": numeric_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Party not found")
 
         party_table.update_item(
-            Key={"PartyId": party_id},
+            Key={"PartyId": numeric_id},
             UpdateExpression="SET deleted = :deleted",
             ExpressionAttributeValues={":deleted": True},
         )
