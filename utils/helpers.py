@@ -27,15 +27,22 @@ def normalize_ddb_item(item: dict) -> dict:
 def normalize_agent_item(item: dict) -> dict:
     """
     Convert DynamoDB item to API-safe response.
-    Handles Decimal conversion properly.
+    Formats numeric Agent ID to string format (e.g., 1 -> "A01")
     """
     def convert(value):
         if isinstance(value, Decimal):
             return str(value)
         return value
 
+    agent_id = item.get("AgentId")
+    # Convert numeric ID to formatted string (1 -> "A01", 2 -> "A02", etc.)
+    if isinstance(agent_id, Decimal):
+        agent_id = int(agent_id)
+    if isinstance(agent_id, int):
+        agent_id = f"A{agent_id:02d}"
+    
     return {
-        "agentId": int(item["AgentId"]) if isinstance(item["AgentId"], Decimal) else item["AgentId"],
+        "agentId": agent_id,
         "name": convert(item.get("Name")),
         "mobile": convert(item.get("Mobile")),
         "aadhar_Details": convert(item.get("Aadhar_Details")),
@@ -46,21 +53,47 @@ def normalize_agent_item(item: dict) -> dict:
 def normalize_party_item(item: dict) -> dict:
     """
     Convert DynamoDB Party item to API-safe response.
+    Formats numeric IDs: AgentId (1 -> "A01"), PartyId (1 -> "A01P001")
     """
     def convert(value):
         if isinstance(value, Decimal):
             value = int(value)
         return str(value) if value is not None else None
 
+    # Get numeric agent ID and format it
+    agent_id = item.get("AgentId")
+    formatted_agent_id = None
+    if agent_id:
+        if isinstance(agent_id, Decimal):
+            agent_id = int(agent_id)
+        if isinstance(agent_id, int):
+            formatted_agent_id = f"A{agent_id:02d}"
+        else:
+            formatted_agent_id = str(agent_id)
+    
+    # Get numeric party ID and format it with agent ID
+    party_id = item.get("PartyId")
+    formatted_party_id = None
+    if party_id:
+        if isinstance(party_id, Decimal):
+            party_id = int(party_id)
+        if isinstance(party_id, int) and formatted_agent_id:
+            formatted_party_id = f"{formatted_agent_id}P{party_id:03d}"
+        elif isinstance(party_id, int):
+            # Fallback if agent_id not available
+            formatted_party_id = f"P{party_id:03d}"
+        else:
+            formatted_party_id = str(party_id)
+    
     return {
-        "partyId": int(item["PartyId"]) if isinstance(item["PartyId"], Decimal) else item["PartyId"],
+        "partyId": formatted_party_id,
         "partyName": item.get("PartyName"),
         "aliasOrCompanyName": item.get("AliasOrCompanyName"),
         "address": item.get("Address"),
         "city": item.get("City"),
         "state": item.get("State"),
         "pincode": convert(item.get("Pincode")),
-        "agentId": int(item["AgentId"]) if item.get("AgentId") and isinstance(item["AgentId"], Decimal) else item.get("AgentId"),
+        "agentId": formatted_agent_id,
         "contact_Person1": item.get("Contact_Person1"),
         "contact_Person2": item.get("Contact_Person2"),
         "email": item.get("Email"),
@@ -113,43 +146,69 @@ def aws_error_detail(e: ClientError) -> str:
 
 def get_next_agent_id() -> int:
     """
-    Get the next agent ID by finding the highest existing agent ID and adding 1
+    Get the next agent ID number (numeric).
+    Finds the highest existing agent ID and returns the next one.
+    Returns: numeric ID (e.g., 1, 2, 3) - will be formatted to "A01", "A02" in responses
     """
     try:
         items = agents_table.scan().get("Items", [])
-        if not items:
-            return 1
-
+        
         agent_ids = []
         for item in items:
             agent_id = item.get("AgentId")
             if agent_id:
-                agent_ids.append(int(agent_id) if isinstance(agent_id, Decimal) else int(agent_id))
+                # Convert to int (handle both numeric and string formats from DB)
+                if isinstance(agent_id, Decimal):
+                    agent_ids.append(int(agent_id))
+                elif isinstance(agent_id, int):
+                    agent_ids.append(agent_id)
+                else:
+                    try:
+                        agent_ids.append(int(agent_id))
+                    except (ValueError, TypeError):
+                        pass
 
-        return max(agent_ids) + 1 if agent_ids else 1
+        next_id = max(agent_ids) + 1 if agent_ids else 1
+        return next_id
     except Exception as e:
         logger.error(f"Error getting next agent ID: {str(e)}")
         raise
 
 
-def get_next_party_id() -> int:
+def get_next_party_id(agent_id: int) -> int:
     """
-    Get the next party ID by finding the highest existing party ID and adding 1
+    Get the next party ID number (numeric).
+    For a given agent, finds the highest party ID and returns the next one.
+    
+    Args:
+        agent_id: The numeric agent ID (e.g., 1, 2, 3)
+    
+    Returns: numeric ID (e.g., 1, 2, 3) - will be formatted to "{agent_id}P001" in responses
     """
     try:
         items = party_table.scan().get("Items", [])
-        if not items:
-            return 1
-
-        party_ids = []
+        
+        # Filter parties belonging to this agent
+        agent_parties = []
         for item in items:
             party_id = item.get("PartyId")
-            if party_id:
-                party_ids.append(int(party_id) if isinstance(party_id, Decimal) else int(party_id))
+            party_agent_id = item.get("AgentId")
+            
+            if party_id and party_agent_id:
+                # Check if this party belongs to the given agent
+                party_agent_id_num = int(party_agent_id) if isinstance(party_agent_id, (int, Decimal)) else party_agent_id
+                if party_agent_id_num == agent_id:
+                    # Extract numeric party ID
+                    try:
+                        party_id_num = int(party_id) if isinstance(party_id, (int, Decimal)) else int(party_id)
+                        agent_parties.append(party_id_num)
+                    except (ValueError, TypeError):
+                        pass
 
-        return max(party_ids) + 1 if party_ids else 1
+        next_num = max(agent_parties) + 1 if agent_parties else 1
+        return next_num
     except Exception as e:
-        logger.error(f"Error getting next party ID: {str(e)}")
+        logger.error(f"Error getting next party ID for agent {agent_id}: {str(e)}")
         raise
 
 

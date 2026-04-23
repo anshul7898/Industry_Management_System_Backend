@@ -3,7 +3,7 @@ from typing import Optional
 
 
 class Agent(BaseModel):
-    agentId: int
+    agentId: str
     aadhar_Details: Optional[str] = None
     address: Optional[str] = None
     mobile: Optional[str] = None
@@ -11,7 +11,7 @@ class Agent(BaseModel):
 
 
 class AgentLightweight(BaseModel):
-    agentId: int
+    agentId: str
     name: Optional[str] = None
 
 

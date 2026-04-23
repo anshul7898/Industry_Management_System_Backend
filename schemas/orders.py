@@ -283,7 +283,7 @@ class Product(BaseModel):
 class Order(BaseModel):
     """Order response model with products array"""
     OrderId: Optional[str] = None
-    AgentId: Optional[int] = None
+    AgentId: Optional[str] = None
     Party_Name: Optional[str] = None
     AliasOrCompanyName: Optional[str] = None
     Address: Optional[str] = None
@@ -392,7 +392,7 @@ class Order(BaseModel):
 
 class BaseOrderModel(BaseModel):
     """Base model for order creation and updates"""
-    AgentId: Optional[int] = Field(None, description="Agent ID")
+    AgentId: Optional[str] = Field(None, description="Agent ID")
     Party_Name: Optional[str] = Field(None, max_length=255)
     AliasOrCompanyName: Optional[str] = Field(None, max_length=255, description="Alias or company name (optional)")
     Address: Optional[str] = Field(None, max_length=255, description="Address (optional)")
