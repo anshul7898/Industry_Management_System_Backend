@@ -392,7 +392,7 @@ class Order(BaseModel):
 
 class BaseOrderModel(BaseModel):
     """Base model for order creation and updates"""
-    AgentId: Optional[str] = Field(None, description="Agent ID")
+    AgentId: str = Field(..., description="Agent ID (required)")
     Party_Name: Optional[str] = Field(None, max_length=255)
     AliasOrCompanyName: Optional[str] = Field(None, max_length=255, description="Alias or company name (optional)")
     Address: Optional[str] = Field(None, max_length=255, description="Address (optional)")

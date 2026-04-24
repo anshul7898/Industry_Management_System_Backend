@@ -36,13 +36,20 @@ def generate_order_id(agent_id: Optional[int]) -> str:
         today_orders = []
         for item in items:
             order_id = item.get('OrderId', '')
-            # Check if it starts with today's date and is a string
-            if isinstance(order_id, str) and order_id.startswith(date_str):
-                today_orders.append(order_id)
+            # Convert to string for comparison (DynamoDB may store as int or str)
+            order_id_str = str(order_id) if order_id else ''
+            if order_id_str.startswith(date_str):
+                today_orders.append(order_id_str)
         
         # Get the next sequence number (1-indexed)
         next_seq = len(today_orders) + 1
         order_id = f"{date_str}{next_seq:04d}"
+        
+        # Safety: ensure no collision with existing OrderIds
+        existing_ids = {str(item.get('OrderId', '')) for item in items}
+        while order_id in existing_ids:
+            next_seq += 1
+            order_id = f"{date_str}{next_seq:04d}"
         
     except Exception as e:
         logger.warning(f"Failed to query existing orders for sequence: {e}. Using fallback sequence.")
@@ -327,8 +334,9 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     if payload.OrderEndDate is not None:
         item["OrderEndDate"] = payload.OrderEndDate.isoformat() if hasattr(payload.OrderEndDate, 'isoformat') else str(payload.OrderEndDate)
 
-    if payload.AgentId is not None:
-        item["AgentId"] = payload.AgentId
+    # ✓ AgentId is always required (no None check needed)
+    item["AgentId"] = payload.AgentId
+    
     if payload.Party_Name is not None:
         item["Party_Name"] = payload.Party_Name
     if payload.AliasOrCompanyName is not None:
@@ -440,7 +448,11 @@ def create_order(payload: CreateOrder):
     try:
         from datetime import date
         
-        logger.info(f"➕ Creating new order with {len(payload.Products)} product(s)")
+        # ✓ Validate AgentId is provided and not empty
+        if not payload.AgentId or (isinstance(payload.AgentId, str) and not payload.AgentId.strip()):
+            raise HTTPException(status_code=422, detail="AgentId is required and cannot be empty")
+        
+        logger.info(f"➕ Creating new order with {len(payload.Products)} product(s), AgentId: {payload.AgentId}")
         order_id = generate_order_id(payload.AgentId)
         ddb_products = build_products_for_storage(payload.Products)
         item = build_order_item(order_id, payload, ddb_products)
@@ -450,8 +462,10 @@ def create_order(payload: CreateOrder):
             item["OrderStartDate"] = date.today().isoformat()
         
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} created with {len(ddb_products)} product(s)")
+        logger.info(f"✓ Order {order_id} created with AgentId {payload.AgentId} and {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
+    except HTTPException:
+        raise
     except ClientError as e:
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
@@ -465,7 +479,11 @@ def update_order(order_id: int, payload: UpdateOrder):
     try:
         from datetime import date
         
-        logger.info(f"✏️ Updating order {order_id} with {len(payload.Products)} product(s)")
+        # ✓ Validate AgentId is provided and not empty
+        if not payload.AgentId or (isinstance(payload.AgentId, str) and not payload.AgentId.strip()):
+            raise HTTPException(status_code=422, detail="AgentId is required and cannot be empty")
+        
+        logger.info(f"✏️ Updating order {order_id} with AgentId: {payload.AgentId} and {len(payload.Products)} product(s)")
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
@@ -478,7 +496,7 @@ def update_order(order_id: int, payload: UpdateOrder):
             item["OrderEndDate"] = date.today().isoformat()
         
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} updated with {len(ddb_products)} product(s)")
+        logger.info(f"✓ Order {order_id} updated with AgentId {payload.AgentId} and {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
     except HTTPException:
         raise
