@@ -40,12 +40,18 @@ def list_agents():
 def list_agents_lightweight():
     """
     Returns a lightweight list of all agents: just AgentId and Name.
+    AgentId is formatted as string (e.g., "A01", "A02")
     """
     try:
         items = filter_deleted_items(agents_table.scan().get("Items", []))
         result = []
         for item in items:
-            agent_id = int(item["AgentId"]) if isinstance(item["AgentId"], Decimal) else item["AgentId"]
+            agent_id = item["AgentId"]
+            if isinstance(agent_id, Decimal):
+                agent_id = int(agent_id)
+            # Format numeric ID to string (1 -> "A01")
+            if isinstance(agent_id, int):
+                agent_id = f"A{agent_id:02d}"
             name = item.get("Name")
             result.append(AgentLightweight(agentId=agent_id, name=name))
         return result
@@ -57,12 +63,25 @@ def list_agents_lightweight():
 
 
 @router.get("/agents/{agent_id}", response_model=Agent)
-def get_agent(agent_id: int):
+def get_agent(agent_id: str):
     try:
-        if agent_id <= 0:
-            raise HTTPException(status_code=400, detail="Agent ID must be a positive integer")
+        if not agent_id or not agent_id.strip():
+            raise HTTPException(status_code=400, detail="Agent ID is required")
 
-        resp = agents_table.get_item(Key={"AgentId": agent_id})
+        # Convert formatted string ID back to numeric (e.g., "A01" -> 1)
+        numeric_id = None
+        if agent_id.startswith("A"):
+            try:
+                numeric_id = int(agent_id[1:])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Agent ID format")
+        else:
+            try:
+                numeric_id = int(agent_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Agent ID")
+
+        resp = agents_table.get_item(Key={"AgentId": numeric_id})
         item = resp.get("Item")
         if not item or is_item_deleted(item):
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -111,19 +130,32 @@ def create_agent(payload: CreateAgent):
 
 
 @router.put("/agents/{agent_id}", response_model=Agent)
-def update_agent(agent_id: int, payload: UpdateAgent):
+def update_agent(agent_id: str, payload: UpdateAgent):
     try:
-        if agent_id <= 0:
-            raise HTTPException(status_code=400, detail="Agent ID must be a positive integer")
+        if not agent_id or not agent_id.strip():
+            raise HTTPException(status_code=400, detail="Agent ID is required")
+
+        # Convert formatted string ID back to numeric (e.g., "A01" -> 1)
+        numeric_id = None
+        if agent_id.startswith("A"):
+            try:
+                numeric_id = int(agent_id[1:])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Agent ID format")
+        else:
+            try:
+                numeric_id = int(agent_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Agent ID")
 
         # Check if agent exists
-        existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
+        existing = agents_table.get_item(Key={"AgentId": numeric_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Agent not found")
 
         # Validation is automatically done by Pydantic
         item = {
-            "AgentId": agent_id,
+            "AgentId": numeric_id,
             "Name": payload.name,
             "Mobile": payload.mobile,
             "Aadhar_Details": payload.aadhar_Details,
@@ -154,17 +186,30 @@ def update_agent(agent_id: int, payload: UpdateAgent):
 
 
 @router.delete("/agents/{agent_id}")
-def delete_agent(agent_id: int):
+def delete_agent(agent_id: str):
     try:
-        if agent_id <= 0:
-            raise HTTPException(status_code=400, detail="Agent ID must be a positive integer")
+        if not agent_id or not agent_id.strip():
+            raise HTTPException(status_code=400, detail="Agent ID is required")
 
-        existing = agents_table.get_item(Key={"AgentId": agent_id}).get("Item")
+        # Convert formatted string ID back to numeric (e.g., "A01" -> 1)
+        numeric_id = None
+        if agent_id.startswith("A"):
+            try:
+                numeric_id = int(agent_id[1:])
+            except (ValueError, IndexError):
+                raise HTTPException(status_code=400, detail="Invalid Agent ID format")
+        else:
+            try:
+                numeric_id = int(agent_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Agent ID")
+
+        existing = agents_table.get_item(Key={"AgentId": numeric_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail="Agent not found")
 
         agents_table.update_item(
-            Key={"AgentId": agent_id},
+            Key={"AgentId": numeric_id},
             UpdateExpression="SET deleted = :deleted",
             ExpressionAttributeValues={":deleted": True},
         )

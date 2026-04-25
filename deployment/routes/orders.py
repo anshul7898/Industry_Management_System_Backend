@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 from decimal import Decimal
 from fastapi import APIRouter, HTTPException
 from botocore.exceptions import ClientError
@@ -20,10 +20,44 @@ logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 
-def generate_order_id(agent_id: int) -> int:
-    """Generate a unique numeric OrderId"""
-    timestamp = int(time.time())
-    order_id = int(str(agent_id) + str(timestamp)[-6:])
+def generate_order_id(agent_id: Optional[int]) -> str:
+    """Generate a unique OrderId in format YYMMDDNNNN"""
+    from datetime import date
+    
+    today = date.today()
+    date_str = today.strftime('%y%m%d')  # YYMMDD format
+    
+    # Query existing orders for today to find the next sequence number
+    try:
+        response = orders_table.scan()
+        items = response.get('Items', [])
+        
+        # Filter orders from today and extract sequence numbers
+        today_orders = []
+        for item in items:
+            order_id = item.get('OrderId', '')
+            # Convert to string for comparison (DynamoDB may store as int or str)
+            order_id_str = str(order_id) if order_id else ''
+            if order_id_str.startswith(date_str):
+                today_orders.append(order_id_str)
+        
+        # Get the next sequence number (1-indexed)
+        next_seq = len(today_orders) + 1
+        order_id = f"{date_str}{next_seq:04d}"
+        
+        # Safety: ensure no collision with existing OrderIds
+        existing_ids = {str(item.get('OrderId', '')) for item in items}
+        while order_id in existing_ids:
+            next_seq += 1
+            order_id = f"{date_str}{next_seq:04d}"
+        
+    except Exception as e:
+        logger.warning(f"Failed to query existing orders for sequence: {e}. Using fallback sequence.")
+        # Fallback: use a simple counter based on timestamp
+        timestamp = int(time.time())
+        next_seq = (timestamp % 10000) % 9999 + 1
+        order_id = f"{date_str}{next_seq:04d}"
+    
     logger.info(f"Generated OrderId: {order_id} from AgentId: {agent_id}")
     return order_id
 
@@ -31,7 +65,7 @@ def generate_order_id(agent_id: int) -> int:
 def build_products_for_storage(products) -> list:
     """
     Convert a list of Product Pydantic models to DynamoDB-safe dicts.
-    FixAmount, QuantityType, JobWorkRate, and GST are stored if present.
+    FixAmount, QuantityType, JobWorkRate, GST, and ProductStatus are stored if present.
 
     ProductAmount stored here is the final value already computed by the
     frontend:
@@ -51,11 +85,15 @@ def build_products_for_storage(products) -> list:
         plate_type    = raw.get("PlateType")
         design_type   = raw.get("DesignType")
         design_style  = raw.get("DesignStyle")
+        product_status = raw.get("ProductStatus", "ToDo")  # Default to "ToDo" if not provided
         roll_size     = raw.get("RollSize")
         fix_amount    = raw.get("FixAmount")
         quantity_type = raw.get("QuantityType")
         job_work_rate = raw.get("JobWorkRate")
         gst           = raw.get("GST")          # ── NEW ──
+        width         = raw.get("Width")
+        height        = raw.get("Height")
+        gusset        = raw.get("Gusset")
 
         product_dict = {k: v for k, v in raw.items() if v is not None}
 
@@ -134,6 +172,9 @@ def build_products_for_storage(products) -> list:
         logger.info(f"Product {idx + 1} QuantityType     : {product_dict.get('QuantityType')}")
         logger.info(f"Product {idx + 1} JobWorkRate      : {product_dict.get('JobWorkRate')}")
         logger.info(f"Product {idx + 1} GST              : {product_dict.get('GST')}")  # ── NEW ──
+        logger.info(f"Product {idx + 1} Width            : {product_dict.get('Width')}")
+        logger.info(f"Product {idx + 1} Height           : {product_dict.get('Height')}")
+        logger.info(f"Product {idx + 1} Gusset           : {product_dict.get('Gusset')}")
 
         converted_product = convert_product_for_storage(product_dict)
 
@@ -177,12 +218,27 @@ def build_products_for_storage(products) -> list:
             logger.warning(f"⚠️ GST corrupted — restoring to '{expected_gst}'")
             converted_product["GST"] = expected_gst
 
+        # Restore Width, Height, Gusset if corrupted by convert_product_for_storage
+        for dim_key, dim_val in (("Width", width), ("Height", height), ("Gusset", gusset)):
+            if dim_val is not None:
+                expected_dim = int(dim_val)
+                if converted_product.get(dim_key) != expected_dim:
+                    logger.warning(f"⚠️ {dim_key} corrupted — restoring to '{expected_dim}'")
+                    converted_product[dim_key] = expected_dim
+            else:
+                converted_product.pop(dim_key, None)
+
         # Restore QuantityType if corrupted by convert_product_for_storage
         if quantity_type and str(quantity_type).strip() in ("KG", "Pieces"):
             expected_qt = str(quantity_type).strip()
             if converted_product.get("QuantityType") != expected_qt:
                 logger.warning(f"⚠️ QuantityType corrupted — restoring to '{expected_qt}'")
                 converted_product["QuantityType"] = expected_qt
+
+        # ── NEW: Ensure ProductStatus is persisted (default to "ToDo") ─────────
+        if product_status not in ("ToDo", "In-Progress", "Delivered"):
+            product_status = "ToDo"
+        converted_product["ProductStatus"] = product_status
 
         if "ProductCategory" not in converted_product:
             logger.warning(f"⚠️ ProductCategory missing in product {idx + 1} after conversion!")
@@ -194,28 +250,113 @@ def build_products_for_storage(products) -> list:
     return ddb_products
 
 
-def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
+def build_order_item(order_id: int, payload, ddb_products: list, is_new_order: bool = False) -> dict:
     """
     Build the DynamoDB item dict for an order.
     TotalAmount = sum(ProductAmounts) + Carting.
     ProductAmount for each product already contains the GST component as
     computed by the frontend. We persist TotalAmount as-is.
+    OrderStatus defaults to 'ToDo' if not provided.
+    OrderStartDate defaults to today's date if not provided.
+    
+    CASCADING LOGIC (for NEW ORDERS only):
+    1. NEW ORDER: All products = "ToDo", Order = "ToDo"
+    
+    2. SINGLE PRODUCT:
+       DELIVERED:
+         - If product marked as Delivered → order becomes Delivered
+         - If order marked as Delivered → product becomes Delivered
+       IN-PROGRESS:
+         - If product marked as In-Progress → order becomes In-Progress
+         - If order marked as In-Progress → product becomes In-Progress
+       TODO:
+         - If product marked as ToDo → order becomes ToDo
+         - If order marked as ToDo → product becomes ToDo
+    
+    3. MULTIPLE PRODUCTS:
+       DELIVERED:
+         - If ALL products marked as Delivered → order becomes Delivered
+         - If order marked as Delivered → ALL products become Delivered
+       IN-PROGRESS:
+         - If ALL products marked as In-Progress → order becomes In-Progress
+         - If order marked as In-Progress → ALL products become In-Progress
+       TODO:
+         - If ALL products marked as ToDo → order becomes ToDo
+         - If order marked as ToDo → ALL products become ToDo
+    
+    UPDATE ORDERS:
+    - Product statuses are PRESERVED as sent from frontend
+    - Order status is computed based on product statuses (by get_order/list_orders)
     """
+    # Convert OrderId to int if it's a string (e.g., "2604220001" -> 2604220001)
+    order_id_value = int(order_id) if isinstance(order_id, str) else order_id
+    
+    # Handle cascading status logic ONLY for new orders
+    order_status = payload.OrderStatus or "ToDo"
+    product_count = len(ddb_products) if ddb_products else 0
+    
+    if is_new_order:
+        # ── NEW ORDER: Apply cascading logic ──
+        # Case 1: Single product order
+        if product_count == 1:
+            # Sync order status to product (order-to-product sync)
+            if order_status == "Delivered":
+                ddb_products[0]["ProductStatus"] = "Delivered"
+            elif order_status == "In-Progress":
+                ddb_products[0]["ProductStatus"] = "In-Progress"
+            elif order_status == "ToDo":
+                ddb_products[0]["ProductStatus"] = "ToDo"
+        
+        # Case 2: Multiple products order
+        elif product_count > 1:
+            # If order status is directly set to Delivered, mark all products as Delivered
+            if order_status == "Delivered":
+                for product in ddb_products:
+                    product["ProductStatus"] = "Delivered"
+            # If order status is directly set to In-Progress, mark all products as In-Progress
+            elif order_status == "In-Progress":
+                for product in ddb_products:
+                    product["ProductStatus"] = "In-Progress"
+            # If order status is directly set to ToDo, mark all products as ToDo
+            elif order_status == "ToDo":
+                for product in ddb_products:
+                    product["ProductStatus"] = "ToDo"
+    else:
+        # ── UPDATE ORDER: Preserve product statuses, don't override ──
+        # Product statuses come from the frontend and should be respected
+        logger.info(f"Updating order: preserving {product_count} product status(es) as provided by frontend")
+    
     item = {
-        "OrderId": order_id,
-        "AgentId": payload.AgentId,
-        "Party_Name": payload.Party_Name,
-        "AliasOrCompanyName": payload.AliasOrCompanyName,
-        "Address": payload.Address,
-        "City": payload.City,
-        "State": payload.State,
-        "Pincode": payload.Pincode,
-        "Contact_Person1": payload.Contact_Person1,
-        "TotalAmount": Decimal(str(payload.TotalAmount)),
-        "Products": ddb_products,
+        "OrderId": order_id_value,
         "deleted": False,
+        "Products": ddb_products,
+        "TotalAmount": Decimal(str(payload.TotalAmount)) if payload.TotalAmount is not None else Decimal("0"),
+        "OrderStatus": order_status,
     }
 
+    if payload.OrderStartDate is not None:
+        item["OrderStartDate"] = payload.OrderStartDate.isoformat() if hasattr(payload.OrderStartDate, 'isoformat') else str(payload.OrderStartDate)
+    
+    if payload.OrderEndDate is not None:
+        item["OrderEndDate"] = payload.OrderEndDate.isoformat() if hasattr(payload.OrderEndDate, 'isoformat') else str(payload.OrderEndDate)
+
+    # ✓ AgentId is always required (no None check needed)
+    item["AgentId"] = payload.AgentId
+    
+    if payload.Party_Name is not None:
+        item["Party_Name"] = payload.Party_Name
+    if payload.AliasOrCompanyName is not None:
+        item["AliasOrCompanyName"] = payload.AliasOrCompanyName
+    if payload.Address is not None:
+        item["Address"] = payload.Address
+    if payload.City is not None:
+        item["City"] = payload.City
+    if payload.State is not None:
+        item["State"] = payload.State
+    if payload.Pincode is not None:
+        item["Pincode"] = payload.Pincode
+    if payload.Contact_Person1 is not None:
+        item["Contact_Person1"] = payload.Contact_Person1
     if payload.Contact_Person2 is not None:
         item["Contact_Person2"] = payload.Contact_Person2
     if payload.Mobile1 is not None:
@@ -248,6 +389,21 @@ def list_orders():
         response = orders_table.scan()
         items = filter_deleted_items(response.get("Items", []))
         converted_items = convert_items_to_python(items)
+        
+        # ── NEW: Auto-update order status based on product statuses ──────────
+        for order in converted_items:
+            products = order.get("Products", [])
+            if products:
+                # If all products are "Delivered", set order status to "Delivered"
+                if all(p.get("ProductStatus") == "Delivered" for p in products):
+                    order["OrderStatus"] = "Delivered"
+                # If all products are "In-Progress", set order status to "In-Progress"
+                elif all(p.get("ProductStatus") == "In-Progress" for p in products):
+                    order["OrderStatus"] = "In-Progress"
+                # If all products are "ToDo", set order status to "ToDo"
+                elif all(p.get("ProductStatus") == "ToDo" for p in products):
+                    order["OrderStatus"] = "ToDo"
+        
         logger.info(f"✓ Successfully retrieved {len(converted_items)} orders")
         return converted_items
     except ClientError as e:
@@ -267,7 +423,22 @@ def get_order(order_id: int):
         order = response.get("Item")
         if not order or is_item_deleted(order):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
-        return convert_item_to_python(order)
+        order = convert_item_to_python(order)
+        
+        # ── Auto-update order status based on product statuses ──────────
+        products = order.get("Products", [])
+        if products:
+            # If all products are "Delivered", set order status to "Delivered"
+            if all(p.get("ProductStatus") == "Delivered" for p in products):
+                order["OrderStatus"] = "Delivered"
+            # If all products are "In-Progress", set order status to "In-Progress"
+            elif all(p.get("ProductStatus") == "In-Progress" for p in products):
+                order["OrderStatus"] = "In-Progress"
+            # If all products are "ToDo", set order status to "ToDo"
+            elif all(p.get("ProductStatus") == "ToDo" for p in products):
+                order["OrderStatus"] = "ToDo"
+        
+        return order
     except HTTPException:
         raise
     except ClientError as e:
@@ -281,15 +452,26 @@ def get_order(order_id: int):
 def create_order(payload: CreateOrder):
     """Create a new order in DynamoDB with multiple products."""
     try:
-        logger.info(f"➕ Creating new order with {len(payload.Products)} product(s)")
-        if payload.TotalAmount is None or payload.TotalAmount < 0:
-            raise ValueError("TotalAmount must be a valid non-negative number")
+        from datetime import date
+        
+        # ✓ Validate AgentId is provided and not empty
+        if not payload.AgentId or (isinstance(payload.AgentId, str) and not payload.AgentId.strip()):
+            raise HTTPException(status_code=422, detail="AgentId is required and cannot be empty")
+        
+        logger.info(f"➕ Creating new order with {len(payload.Products)} product(s), AgentId: {payload.AgentId}")
         order_id = generate_order_id(payload.AgentId)
         ddb_products = build_products_for_storage(payload.Products)
-        item = build_order_item(order_id, payload, ddb_products)
+        item = build_order_item(order_id, payload, ddb_products, is_new_order=True)
+        
+        # Set OrderStartDate to today if not provided
+        if "OrderStartDate" not in item or item["OrderStartDate"] is None:
+            item["OrderStartDate"] = date.today().isoformat()
+        
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} created with {len(ddb_products)} product(s)")
+        logger.info(f"✓ Order {order_id} created with AgentId {payload.AgentId} and {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
+    except HTTPException:
+        raise
     except ClientError as e:
         raise HTTPException(status_code=500, detail=f"DynamoDB Error: {e.response['Error']['Message']}")
     except Exception as e:
@@ -301,17 +483,26 @@ def create_order(payload: CreateOrder):
 def update_order(order_id: int, payload: UpdateOrder):
     """Update an existing order in DynamoDB."""
     try:
-        logger.info(f"✏️ Updating order {order_id} with {len(payload.Products)} product(s)")
-        if payload.TotalAmount is None or payload.TotalAmount < 0:
-            raise ValueError("TotalAmount must be a valid non-negative number")
+        from datetime import date
+        
+        # ✓ Validate AgentId is provided and not empty
+        if not payload.AgentId or (isinstance(payload.AgentId, str) and not payload.AgentId.strip()):
+            raise HTTPException(status_code=422, detail="AgentId is required and cannot be empty")
+        
+        logger.info(f"✏️ Updating order {order_id} with AgentId: {payload.AgentId} and {len(payload.Products)} product(s)")
         existing = orders_table.get_item(Key={"OrderId": order_id}).get("Item")
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
         ddb_products = build_products_for_storage(payload.Products)
-        item = build_order_item(order_id, payload, ddb_products)
+        item = build_order_item(order_id, payload, ddb_products, is_new_order=False)
         item["deleted"] = existing.get("deleted", False)
+        
+        # Auto-set OrderEndDate to today when status is changed to "Delivered"
+        if payload.OrderStatus == "Delivered" and payload.OrderEndDate is None:
+            item["OrderEndDate"] = date.today().isoformat()
+        
         orders_table.put_item(Item=item)
-        logger.info(f"✓ Order {order_id} updated with {len(ddb_products)} product(s)")
+        logger.info(f"✓ Order {order_id} updated with AgentId {payload.AgentId} and {len(ddb_products)} product(s)")
         return convert_item_to_python(item)
     except HTTPException:
         raise
