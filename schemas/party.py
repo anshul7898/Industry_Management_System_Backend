@@ -177,15 +177,12 @@ class CreateParty(BaseModel):
     @field_validator('address')
     @classmethod
     def validate_address(cls, v):
-        """Validate address (optional)"""
+        """Validate address (optional) - allow any non-empty address"""
         if not v:
             return v
 
         if not v.strip():
             return None
-
-        if len(v.strip()) < 5:
-            raise ValueError("Address must be at least 5 characters long if provided")
 
         if len(v) > 500:
             raise ValueError("Address cannot exceed 500 characters")
@@ -428,15 +425,12 @@ class UpdateParty(BaseModel):
     @field_validator('address')
     @classmethod
     def validate_address(cls, v):
-        """Validate address (optional)"""
+        """Validate address (optional) - allow any non-empty address"""
         if not v:
             return v
 
         if not v.strip():
             return None
-
-        if len(v.strip()) < 5:
-            raise ValueError("Address must be at least 5 characters long if provided")
 
         if len(v) > 500:
             raise ValueError("Address cannot exceed 500 characters")
