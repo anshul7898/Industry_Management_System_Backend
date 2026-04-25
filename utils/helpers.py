@@ -177,38 +177,29 @@ def get_next_agent_id() -> int:
 
 def get_next_party_id(agent_id: int) -> int:
     """
-    Get the next party ID number (numeric).
-    For a given agent, finds the highest party ID and returns the next one.
-    
+    Get the next party ID number (numeric) globally across all parties.
+    Finds the highest existing PartyId across all agents and returns max + 1.
+
     Args:
-        agent_id: The numeric agent ID (e.g., 1, 2, 3)
-    
-    Returns: numeric ID (e.g., 1, 2, 3) - will be formatted to "{agent_id}P001" in responses
+        agent_id: The numeric agent ID (unused for ID generation, kept for signature compatibility)
+
+    Returns: numeric ID unique across the entire party table
     """
     try:
         items = party_table.scan().get("Items", [])
-        
-        # Filter parties belonging to this agent
-        agent_parties = []
+
+        party_ids = []
         for item in items:
             party_id = item.get("PartyId")
-            party_agent_id = item.get("AgentId")
-            
-            if party_id and party_agent_id:
-                # Check if this party belongs to the given agent
-                party_agent_id_num = int(party_agent_id) if isinstance(party_agent_id, (int, Decimal)) else party_agent_id
-                if party_agent_id_num == agent_id:
-                    # Extract numeric party ID
-                    try:
-                        party_id_num = int(party_id) if isinstance(party_id, (int, Decimal)) else int(party_id)
-                        agent_parties.append(party_id_num)
-                    except (ValueError, TypeError):
-                        pass
+            if party_id:
+                try:
+                    party_ids.append(int(party_id) if isinstance(party_id, (int, Decimal)) else int(party_id))
+                except (ValueError, TypeError):
+                    pass
 
-        next_num = max(agent_parties) + 1 if agent_parties else 1
-        return next_num
+        return max(party_ids) + 1 if party_ids else 1
     except Exception as e:
-        logger.error(f"Error getting next party ID for agent {agent_id}: {str(e)}")
+        logger.error(f"Error getting next party ID: {str(e)}")
         raise
 
 
