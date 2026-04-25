@@ -8,11 +8,13 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from config.settings import AWS_REGION
+
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 # ── DynamoDB table ────────────────────────────────────────────────
-dynamodb = boto3.resource("dynamodb", region_name="ap-south-1")
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 roll_size_table = dynamodb.Table("Roll_Size_Table")
 
 
@@ -74,12 +76,21 @@ def add_roll_size(payload: RollSizeCreate):
 
         new_id = int(time.time() * 1000) % 10_000_000
 
-        roll_size_table.put_item(
-            Item={
-                "ID": Decimal(str(new_id)),
-                "Size": size_val,
-            }
-        )
+        # Parse numeric value from size string (e.g. "33'" → 33)
+        size_number_str = size_val.rstrip("'").strip()
+        try:
+            size_number = int(size_number_str)
+        except ValueError:
+            size_number = None
+
+        item = {
+            "ID": Decimal(str(new_id)),
+            "Size": size_val,
+        }
+        if size_number is not None:
+            item["SizeNumber"] = Decimal(str(size_number))
+
+        roll_size_table.put_item(Item=item)
         logger.info(f"✓ Roll size '{size_val}' added with ID {new_id}")
 
         updated_sizes = _fetch_all_sizes()

@@ -3,7 +3,7 @@ from typing import Optional
 
 
 class Agent(BaseModel):
-    agentId: int
+    agentId: str
     aadhar_Details: Optional[str] = None
     address: Optional[str] = None
     mobile: Optional[str] = None
@@ -11,7 +11,7 @@ class Agent(BaseModel):
 
 
 class AgentLightweight(BaseModel):
-    agentId: int
+    agentId: str
     name: Optional[str] = None
 
 
@@ -19,7 +19,7 @@ class CreateAgent(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Agent name")
     mobile: str = Field(..., description="10-digit mobile number")
     aadhar_Details: Optional[str] = Field(None, description="12-digit Aadhar number (optional)")
-    address: str = Field(..., min_length=1, max_length=500, description="Agent address")
+    address: Optional[str] = Field(None, max_length=500, description="Agent address (optional)")
 
     @field_validator('name')
     @classmethod

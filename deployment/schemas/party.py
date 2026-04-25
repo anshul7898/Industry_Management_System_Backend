@@ -4,20 +4,19 @@ import re
 
 
 class Party(BaseModel):
-    partyId: int
+    partyId: str
     partyName: str
     aliasOrCompanyName: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     pincode: Optional[str] = None
-    agentId: Optional[int] = None
+    agentId: Optional[str] = None
     contact_Person1: Optional[str] = None
     contact_Person2: Optional[str] = None
     email: Optional[str] = None
     mobile1: Optional[str] = None
     mobile2: Optional[str] = None
-    orderId: Optional[str] = None
 
 
 class CreateParty(BaseModel):
@@ -32,8 +31,7 @@ class CreateParty(BaseModel):
     city: str = Field(..., min_length=1, max_length=100, description="City")
     state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
-    agentId: Optional[int] = Field(None, description="Agent ID (optional)")
-    orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
+    agentId: Optional[str] = Field(None, description="Agent ID (optional)")
 
     @field_validator('partyName')
     @classmethod
@@ -179,15 +177,12 @@ class CreateParty(BaseModel):
     @field_validator('address')
     @classmethod
     def validate_address(cls, v):
-        """Validate address (optional)"""
+        """Validate address (optional) - allow any non-empty address"""
         if not v:
             return v
 
         if not v.strip():
             return None
-
-        if len(v.strip()) < 5:
-            raise ValueError("Address must be at least 5 characters long if provided")
 
         if len(v) > 500:
             raise ValueError("Address cannot exceed 500 characters")
@@ -245,27 +240,35 @@ class CreateParty(BaseModel):
 
         return v.strip()
 
-    @field_validator('orderId')
-    @classmethod
-    def validate_order_id(cls, v):
-        """Validate order ID (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
-
-        if len(v) > 100:
-            raise ValueError("Order ID cannot exceed 100 characters")
-
-        return v.strip()
-
     @field_validator('agentId')
     @classmethod
     def validate_agent_id(cls, v):
-        """Validate agent ID (optional)"""
-        if v is not None and v <= 0:
-            raise ValueError("Agent ID must be a positive integer")
+        """Validate agent ID (optional) - should be a formatted string like 'A01' or numeric"""
+        if v is None:
+            return v
+        
+        # Accept string format (e.g., "A01") or numeric format
+        agent_id_str = str(v).strip()
+        if not agent_id_str:
+            return None
+        
+        # Validate format: either starts with 'A' followed by digits, or just digits
+        if agent_id_str.startswith('A'):
+            # Format: A01, A02, etc.
+            try:
+                num = int(agent_id_str[1:])
+                if num <= 0:
+                    raise ValueError("Agent ID number must be positive")
+            except (ValueError, IndexError):
+                raise ValueError("Agent ID must be in format 'A' followed by digits (e.g., 'A01')")
+        else:
+            # Numeric format: 1, 2, 3, etc.
+            try:
+                num = int(agent_id_str)
+                if num <= 0:
+                    raise ValueError("Agent ID must be a positive number")
+            except ValueError:
+                raise ValueError("Agent ID must be a valid number or formatted string (e.g., 'A01')")
 
         return v
 
@@ -282,8 +285,7 @@ class UpdateParty(BaseModel):
     city: str = Field(..., min_length=1, max_length=100, description="City")
     state: str = Field(..., min_length=1, max_length=100, description="State")
     pincode: Optional[str] = Field(None, max_length=10, description="Pincode (optional)")
-    agentId: Optional[int] = Field(None, description="Agent ID (optional)")
-    orderId: Optional[str] = Field(None, max_length=100, description="Order ID (optional)")
+    agentId: Optional[str] = Field(None, description="Agent ID (optional)")
 
     @field_validator('partyName')
     @classmethod
@@ -423,15 +425,12 @@ class UpdateParty(BaseModel):
     @field_validator('address')
     @classmethod
     def validate_address(cls, v):
-        """Validate address (optional)"""
+        """Validate address (optional) - allow any non-empty address"""
         if not v:
             return v
 
         if not v.strip():
             return None
-
-        if len(v.strip()) < 5:
-            raise ValueError("Address must be at least 5 characters long if provided")
 
         if len(v) > 500:
             raise ValueError("Address cannot exceed 500 characters")
@@ -490,26 +489,34 @@ class UpdateParty(BaseModel):
 
         return v.strip()
 
-    @field_validator('orderId')
-    @classmethod
-    def validate_order_id(cls, v):
-        """Validate order ID (optional)"""
-        if not v:
-            return v
-
-        if not v.strip():
-            return None
-
-        if len(v) > 100:
-            raise ValueError("Order ID cannot exceed 100 characters")
-
-        return v.strip()
-
     @field_validator('agentId')
     @classmethod
     def validate_agent_id(cls, v):
-        """Validate agent ID (optional)"""
-        if v is not None and v <= 0:
-            raise ValueError("Agent ID must be a positive integer")
+        """Validate agent ID (optional) - should be a formatted string like 'A01' or numeric"""
+        if v is None:
+            return v
+        
+        # Accept string format (e.g., "A01") or numeric format
+        agent_id_str = str(v).strip()
+        if not agent_id_str:
+            return None
+        
+        # Validate format: either starts with 'A' followed by digits, or just digits
+        if agent_id_str.startswith('A'):
+            # Format: A01, A02, etc.
+            try:
+                num = int(agent_id_str[1:])
+                if num <= 0:
+                    raise ValueError("Agent ID number must be positive")
+            except (ValueError, IndexError):
+                raise ValueError("Agent ID must be in format 'A' followed by digits (e.g., 'A01')")
+        else:
+            # Numeric format: 1, 2, 3, etc.
+            try:
+                num = int(agent_id_str)
+                if num <= 0:
+                    raise ValueError("Agent ID must be a positive number")
+            except ValueError:
+                raise ValueError("Agent ID must be a valid number or formatted string (e.g., 'A01')")
 
         return v
