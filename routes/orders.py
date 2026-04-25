@@ -250,7 +250,7 @@ def build_products_for_storage(products) -> list:
     return ddb_products
 
 
-def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
+def build_order_item(order_id: int, payload, ddb_products: list, is_new_order: bool = False) -> dict:
     """
     Build the DynamoDB item dict for an order.
     TotalAmount = sum(ProductAmounts) + Carting.
@@ -259,7 +259,7 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
     OrderStatus defaults to 'ToDo' if not provided.
     OrderStartDate defaults to today's date if not provided.
     
-    CASCADING LOGIC (COMPLETE):
+    CASCADING LOGIC (for NEW ORDERS only):
     1. NEW ORDER: All products = "ToDo", Order = "ToDo"
     
     2. SINGLE PRODUCT:
@@ -283,42 +283,48 @@ def build_order_item(order_id: int, payload, ddb_products: list) -> dict:
        TODO:
          - If ALL products marked as ToDo → order becomes ToDo
          - If order marked as ToDo → ALL products become ToDo
+    
+    UPDATE ORDERS:
+    - Product statuses are PRESERVED as sent from frontend
+    - Order status is computed based on product statuses (by get_order/list_orders)
     """
     # Convert OrderId to int if it's a string (e.g., "2604220001" -> 2604220001)
     order_id_value = int(order_id) if isinstance(order_id, str) else order_id
     
-    # Handle cascading status logic
+    # Handle cascading status logic ONLY for new orders
     order_status = payload.OrderStatus or "ToDo"
     product_count = len(ddb_products) if ddb_products else 0
     
-    # Case 1: Single product order
-    if product_count == 1:
-        # Sync order status to product (order-to-product sync)
-        if order_status == "Delivered":
-            ddb_products[0]["ProductStatus"] = "Delivered"
-        elif order_status == "In-Progress":
-            ddb_products[0]["ProductStatus"] = "In-Progress"
-        elif order_status == "ToDo":
-            ddb_products[0]["ProductStatus"] = "ToDo"
-        # Note: Product-to-order sync happens in get_order() and list_orders() 
-        # when all products have the same status (auto-calculation on retrieval)
-    
-    # Case 2: Multiple products order
-    elif product_count > 1:
-        # If order status is directly set to Delivered, mark all products as Delivered
-        if order_status == "Delivered":
-            for product in ddb_products:
-                product["ProductStatus"] = "Delivered"
-        # If order status is directly set to In-Progress, mark all products as In-Progress
-        elif order_status == "In-Progress":
-            for product in ddb_products:
-                product["ProductStatus"] = "In-Progress"
-        # If order status is directly set to ToDo, mark all products as ToDo
-        elif order_status == "ToDo":
-            for product in ddb_products:
-                product["ProductStatus"] = "ToDo"
-        # Note: Product-to-order sync happens in get_order() and list_orders() 
-        # when ALL products have the same status (auto-calculation on retrieval)
+    if is_new_order:
+        # ── NEW ORDER: Apply cascading logic ──
+        # Case 1: Single product order
+        if product_count == 1:
+            # Sync order status to product (order-to-product sync)
+            if order_status == "Delivered":
+                ddb_products[0]["ProductStatus"] = "Delivered"
+            elif order_status == "In-Progress":
+                ddb_products[0]["ProductStatus"] = "In-Progress"
+            elif order_status == "ToDo":
+                ddb_products[0]["ProductStatus"] = "ToDo"
+        
+        # Case 2: Multiple products order
+        elif product_count > 1:
+            # If order status is directly set to Delivered, mark all products as Delivered
+            if order_status == "Delivered":
+                for product in ddb_products:
+                    product["ProductStatus"] = "Delivered"
+            # If order status is directly set to In-Progress, mark all products as In-Progress
+            elif order_status == "In-Progress":
+                for product in ddb_products:
+                    product["ProductStatus"] = "In-Progress"
+            # If order status is directly set to ToDo, mark all products as ToDo
+            elif order_status == "ToDo":
+                for product in ddb_products:
+                    product["ProductStatus"] = "ToDo"
+    else:
+        # ── UPDATE ORDER: Preserve product statuses, don't override ──
+        # Product statuses come from the frontend and should be respected
+        logger.info(f"Updating order: preserving {product_count} product status(es) as provided by frontend")
     
     item = {
         "OrderId": order_id_value,
@@ -455,7 +461,7 @@ def create_order(payload: CreateOrder):
         logger.info(f"➕ Creating new order with {len(payload.Products)} product(s), AgentId: {payload.AgentId}")
         order_id = generate_order_id(payload.AgentId)
         ddb_products = build_products_for_storage(payload.Products)
-        item = build_order_item(order_id, payload, ddb_products)
+        item = build_order_item(order_id, payload, ddb_products, is_new_order=True)
         
         # Set OrderStartDate to today if not provided
         if "OrderStartDate" not in item or item["OrderStartDate"] is None:
@@ -488,7 +494,7 @@ def update_order(order_id: int, payload: UpdateOrder):
         if not existing or is_item_deleted(existing):
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
         ddb_products = build_products_for_storage(payload.Products)
-        item = build_order_item(order_id, payload, ddb_products)
+        item = build_order_item(order_id, payload, ddb_products, is_new_order=False)
         item["deleted"] = existing.get("deleted", False)
         
         # Auto-set OrderEndDate to today when status is changed to "Delivered"
